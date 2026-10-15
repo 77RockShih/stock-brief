@@ -1,4 +1,4 @@
-"""Build Telegram text and the HTML dashboard."""
+"""Build LINE message text and the HTML dashboard."""
 import html
 import json
 
@@ -10,7 +10,7 @@ ICON = {"bull": "🟢", "bear": "🔴", "info": "🟡"}
 UP, DOWN = "#d9363e", "#1a9850"  # 台股慣例：紅漲綠跌
 
 
-def telegram_text(results: list[dict], dashboard_url: str | None) -> str:
+def message_text(results: list[dict], dashboard_url: str | None) -> str:
     date = results[0]["date"] if results else ""
     lines = [f"<b>📈 台股晨報</b>（資料日 {date}）", ""]
     for r in sorted(results, key=lambda x: -x["score"]):

@@ -1,4 +1,4 @@
-"""Daily stock brief: fetch → analyze → dashboard + Telegram.
+"""Daily stock brief: fetch → analyze → dashboard + LINE.
 
 Usage:
   python main.py            # 正式執行（需要 FINMIND_TOKEN）
@@ -64,11 +64,11 @@ def main() -> int:
     (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")
 
-    text = report.telegram_text(results, os.getenv("DASHBOARD_URL"))
+    text = report.message_text(results, os.getenv("DASHBOARD_URL"))
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:
-        notify.send_all(text, os.environ)
+        notify.send_line(text, os.getenv("LINE_TOKEN"), os.getenv("LINE_USER_ID"))
     return 0
 
 
