@@ -1,0 +1,21 @@
+# 追蹤清單：代號 → 顯示名稱
+watchlist:
+  "2330": 台積電
+  "2317": 鴻海
+  "2454": 聯發科
+  "2308": 台達電
+  "0050": 元大台灣50
+
+# 抓多少天歷史資料（算 MA60 / RSI 需要足夠長度）
+lookback_days: 200
+
+# 訊號規則參數
+rules:
+  rsi_overbought: 70
+  rsi_oversold: 30
+  volume_spike_ratio: 2.0        # 今日量 / 20 日均量
+  inst_consecutive_days: 3       # 外資連續買/賣超天數
+  new_high_window: 60            # 創 N 日新高 / 新低
+
+# Dashboard 每檔顯示多少天 K 線
+chart_days: 120
