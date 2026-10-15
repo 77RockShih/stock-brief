@@ -12,19 +12,35 @@ def html_to_plain(text: str) -> str:
     return html.unescape(text)
 
 
+def split_text(text: str, limit: int = 4800, max_parts: int = 5) -> list[str]:
+    """LINE 單則文字上限 5000 字；超過就在段落間切開，同一次推播最多 5 則（額度仍只算 1 則）。"""
+    parts, cur = [], ""
+    for para in text.split("\n\n"):
+        add = para if not cur else cur + "\n\n" + para
+        if len(add) <= limit:
+            cur = add
+        else:
+            if cur:
+                parts.append(cur)
+            cur = para[:limit]
+    if cur:
+        parts.append(cur)
+    return parts[:max_parts]
+
+
 def send_line(text: str, token: str | None, user_ids: str | None) -> None:
     """user_ids：
       - 單一 ID              → push
       - 逗號分隔多個 ID      → multicast（上限 500 人）
       - "broadcast"          → 推給官方帳號所有好友
     每個收件人各算 1 則額度。"""
-    plain = html_to_plain(text)[:5000]  # LINE 單則上限 5000 字
+    plain = html_to_plain(text)
     ids = [i.strip() for i in (user_ids or "").split(",") if i.strip()]
     if not token or not ids:
         print("[notify] LINE_TOKEN / LINE_USER_ID 未設定，改印出訊息：\n")
         print(plain)
         return
-    messages = [{"type": "text", "text": plain}]
+    messages = [{"type": "text", "text": c} for c in split_text(plain)]
     if ids == ["broadcast"]:
         r = requests.post("https://api.line.me/v2/bot/message/broadcast",
                           headers={"Authorization": f"Bearer {token}"}, json={"messages": messages}, timeout=30)

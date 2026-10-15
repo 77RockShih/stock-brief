@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-from src import analyze, extra, fetch, notify, report, summarize
+from src import analyze, blogs, extra, fetch, market as mkt, notify, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
@@ -67,6 +67,7 @@ def main() -> int:
             r = analyze.evaluate(df, inst, cfg["rules"])
             r.update(id=sid, name=name)
             r["revenue"], r["news"] = _fundamentals(sid, name, cfg, token, args.mock)
+            r["ret20"] = float((df.close.iloc[-1] / df.close.iloc[-21] - 1) * 100)
             results.append(r)
             frames[sid] = (df, inst)
             print(f"[ok] {sid} {name}: {len(r['signals'])} signals")
@@ -77,6 +78,17 @@ def main() -> int:
     if not results:
         print("全部失敗，結束", file=sys.stderr)
         return 1
+
+    # 大盤 + 相對強弱
+    market = None
+    try:
+        mdf = mkt.mock_taiex() if args.mock else mkt.fetch_taiex(start, token)
+        market = mkt.market_summary(mdf)
+    except Exception as e:
+        print(f"[warn] market: {e}", file=sys.stderr)
+    for r in results:
+        r["rel1"] = r["change_pct"] - market["d1"] if market else None
+        r["rel20"] = r["ret20"] - market["d20"] if market else None
 
     # 原物料
     commodities = []
@@ -100,13 +112,22 @@ def main() -> int:
     for r in results:
         r["digest"] = digest.get(r["id"])
 
+    # 大神文章（RSS → Claude 摘要）；只進 LINE，不放公開 dashboard
+    posts = []
+    try:
+        raw = blogs.mock_posts() if args.mock else blogs.fetch_posts(cfg.get("blogs", []), results)
+        posts = summarize.summarize_posts(raw, os.getenv("ANTHROPIC_API_KEY"),
+                                          cfg.get("llm_model", "claude-haiku-5-5"), results)
+    except Exception as e:
+        print(f"[warn] blogs: {e}", file=sys.stderr)
+
     OUT.mkdir(exist_ok=True)
-    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities), encoding="utf-8")
+    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities, market), encoding="utf-8")
     (OUT / "manifest.json").write_text(report.MANIFEST, encoding="utf-8")
     (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")
 
-    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities)
+    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, posts)
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:

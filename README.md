@@ -1,6 +1,6 @@
 # stock-brief
 
-每天早上自動分析台股 watchlist：GitHub Actions 抓 FinMind 資料 → 算技術指標、法人籌碼、月營收 → 抓個股新聞由 Claude 摘要、追蹤原物料 → 推 LINE 摘要 + 更新 GitHub Pages dashboard。
+每天早上自動分析台股 watchlist：GitHub Actions 抓 FinMind 資料 → 算技術指標、法人籌碼、月營收 → 抓個股新聞與大神文章由 Claude 摘要、追蹤原物料與大盤 → 推 LINE 摘要 + 更新 GitHub Pages dashboard。
 
 ## 架構
 
@@ -11,6 +11,9 @@ src/fetch.py         FinMind API（與 mock 資料）
 src/analyze.py       MA / RSI / MACD / 量比 + 訊號規則
 src/extra.py         月營收、個股新聞（FinMind）、原物料（Yahoo）
 src/summarize.py     Claude API 新聞摘要
+src/market.py        加權指數、相對大盤強弱
+src/blogs.py         大神文章 RSS（來源在 config.yaml 的 blogs）
+tools/get_user_id.py 一次性工具：本機接收 LINE webhook 取得 user ID
 src/report.py        LINE 訊息 + Plotly dashboard
 src/notify.py        LINE 推播
 .github/workflows/daily.yml   週一到五 07:30（台北）執行並部署 Pages
@@ -38,6 +41,7 @@ FINMIND_TOKEN=xxx python main.py --no-notify   # 真實資料
    - 建議在官方帳號設定裡關掉「自動回應訊息」，避免它回你罐頭訊息
 
 4. **Secrets**：repo → Settings → Secrets and variables → Actions，新增 `FINMIND_TOKEN`、`LINE_TOKEN`、`LINE_USER_ID`、`ANTHROPIC_API_KEY`（console.anthropic.com 申請；沒設的話新聞只列標題）。
+   `LINE_USER_ID` 可填單一 ID、逗號分隔多個 ID，或 `broadcast`（推給所有好友）。
 5. **開 Pages**：repo → Settings → Pages → Source 選 **GitHub Actions**。
 6. **手動跑一次**：Actions 分頁 → Daily Stock Brief → Run workflow。成功後手機就會收到訊息。
 
@@ -46,5 +50,6 @@ FINMIND_TOKEN=xxx python main.py --no-notify   # 真實資料
 - Public repo 的 Pages 任何人都能看到；不想公開持股就把 repo 設 private（Pages 需付費方案），或改部署到 Cloudflare Pages + Access。
 - GitHub Actions cron 可能延遲數分鐘到半小時。
 - LINE 免費方案每月推播則數有上限；每天 1 則在額度內，但不要拿它做盤中頻繁通知。
+- 大神文章：在 `config.yaml` 的 `blogs` 加任何 RSS 網址即可；`only_related: true` 只收提到追蹤股票的文章。摘要只推到 LINE。
 - AI 摘要只根據新聞標題，可能遺漏內文細節；摘要只推到 LINE，不放公開 dashboard。
 - 技術指標僅供參考，規則上線前先回測。

@@ -23,10 +23,21 @@ def _rev_text(rev: dict | None) -> str | None:
     return f"{rev['month']}月營收 {rev['revenue_e8']:,.1f} 億｜YoY {_pct(rev['yoy'])}・MoM {_pct(rev['mom'])}"
 
 
-def message_text(results: list[dict], dashboard_url: str | None, commodities: list[dict] | None = None) -> str:
+def _rel_line(r: dict) -> str | None:
+    if r.get("rel20") is None:
+        return None
+    return f"　📐 相對大盤：今日 {r['rel1']:+.1f}%・20 日 {r['rel20']:+.1f}%"
+
+
+def message_text(results: list[dict], dashboard_url: str | None, commodities: list[dict] | None = None,
+                 market: dict | None = None, posts: list[dict] | None = None) -> str:
     date = results[0]["date"] if results else ""
     names = {r["id"]: r["name"] for r in results}
     lines = [f"<b>📈 台股晨報</b>（資料日 {date}）", ""]
+
+    if market:
+        lines.append(f"<b>🏛 加權指數</b> {market['close']:,.0f}｜今日 {_pct(market['d1'])}・20 日 {_pct(market['d20'])}")
+        lines.append("")
 
     if commodities:
         lines.append("<b>🔩 原物料</b>")
@@ -46,6 +57,9 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
         rev = _rev_text(r.get("revenue"))
         if rev:
             lines.append(f"　📊 {rev}")
+        rel = _rel_line(r)
+        if rel:
+            lines.append(rel)
         for kind, text in r["signals"]:
             lines.append(f"　{ICON[kind]} {html.escape(text)}")
         if not r["signals"]:
@@ -53,6 +67,15 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
         d = r.get("digest")
         if d:
             lines.append(f"　📰 {TONE.get(d['tone'], '')}{html.escape(d['summary'])}")
+        lines.append("")
+    if posts:
+        lines.append("<b>🧠 大神觀點</b>")
+        for p in posts:
+            rel = f"（相關：{p['related']}）" if p.get("related") else ""
+            lines.append(f"▸ {html.escape(p['source'])}｜{html.escape(p['title'])}")
+            if p.get("summary"):
+                lines.append(f"　{html.escape(p['summary'])}{html.escape(rel)}")
+            lines.append(f"　{p['link']}")
         lines.append("")
     if dashboard_url:
         lines.append(f'<a href="{dashboard_url}">開啟 Dashboard</a>')
@@ -93,7 +116,8 @@ def _figure(df: pd.DataFrame, inst: pd.DataFrame, title: str) -> go.Figure:
     return fig
 
 
-def dashboard_html(results: list[dict], frames: dict, chart_days: int, commodities: list[dict] | None = None) -> str:
+def dashboard_html(results: list[dict], frames: dict, chart_days: int, commodities: list[dict] | None = None,
+                   market: dict | None = None) -> str:
     date = results[0]["date"] if results else ""
     rows, charts = [], []
     for r in sorted(results, key=lambda x: -x["score"]):
@@ -104,6 +128,8 @@ def dashboard_html(results: list[dict], frames: dict, chart_days: int, commoditi
         rv = r.get("revenue")
         yoy = '<span class="muted">—</span>' if not rv or rv["yoy"] is None else \
             f'<span class="{"up" if rv["yoy"] >= 0 else "down"}">{rv["yoy"]:+.1f}%</span><div class="muted">{rv["month"]}月</div>'
+        rel = '<span class="muted">—</span>' if r.get("rel20") is None else \
+            f'<span class="{"up" if r["rel20"] >= 0 else "down"}">{r["rel20"]:+.1f}%</span>'
         news_html = "".join(
             f'<li><a href="{html.escape(n["link"])}" target="_blank" rel="noopener">{html.escape(n["title"])}</a>'
             f' <span class="muted">{html.escape(str(n["source"]))}・{html.escape(str(n["date"])[:10])}</span></li>'
@@ -111,7 +137,7 @@ def dashboard_html(results: list[dict], frames: dict, chart_days: int, commoditi
         rows.append(
             f'<tr><td><a href="#s{r["id"]}">{html.escape(r["name"])}</a><div class="muted">{r["id"]}</div></td>'
             f'<td class="num">{r["close"]:.2f}</td><td class="num {cls}">{r["change_pct"]:+.2f}%</td>'
-            f'<td class="num">{r["rsi"]:.0f}</td><td class="num">{foreign}</td><td class="num">{yoy}</td><td>{sig}</td></tr>'
+            f'<td class="num">{r["rsi"]:.0f}</td><td class="num">{foreign}</td><td class="num">{rel}</td><td class="num">{yoy}</td><td>{sig}</td></tr>'
         )
         fig = _figure(df.tail(chart_days), inst, f'{r["name"]} {r["id"]}')
         charts.append(f'<section id="s{r["id"]}">' + fig.to_html(full_html=False, include_plotlyjs=False,
@@ -119,6 +145,11 @@ def dashboard_html(results: list[dict], frames: dict, chart_days: int, commoditi
                       + (f'<div class="news"><div class="muted">相關新聞</div><ul>{news_html}</ul></div>' if news_html else "")
                       + "</section>")
 
+    mk = ""
+    if market:
+        mk = (f'<div class="muted">加權指數 {market["close"]:,.0f}｜今日 '
+              f'<span class="{"up" if market["d1"] >= 0 else "down"}">{market["d1"]:+.2f}%</span>・20 日 '
+              f'<span class="{"up" if market["d20"] >= 0 else "down"}">{market["d20"]:+.1f}%</span></div>')
     comm = ""
     if commodities:
         crow = "".join(
@@ -161,8 +192,9 @@ h2 {{ font-size:16px; margin:20px 0 4px }}
 .news {{ padding:4px 12px 10px }} .news ul {{ margin:4px 0; padding-left:18px }} .news li {{ margin:3px 0; font-size:14px }}
 </style></head><body><main>
 <h1>台股晨報</h1><div class="muted">資料日 {date}・依訊號分數排序</div>
+{mk}
 <div class="card"><table>
-<thead><tr><th>股票</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">RSI</th><th class="num">外資(張)</th><th class="num">營收YoY</th><th>訊號</th></tr></thead>
+<thead><tr><th>股票</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">RSI</th><th class="num">外資(張)</th><th class="num">相對大盤20日</th><th class="num">營收YoY</th><th>訊號</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
 {comm}
 {''.join(charts)}
