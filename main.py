@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-from src import analyze, experts, extra, fetch, market as mkt, notify, report, summarize
+from src import analyze, experts, extra, fetch, market as mkt, notify, overnight, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
@@ -90,6 +90,16 @@ def main() -> int:
         r["rel1"] = r["change_pct"] - market["d1"] if market else None
         r["rel20"] = r["ret20"] - market["d20"] if market else None
 
+    # 盤前：昨夜美股 + 台指期夜盤
+    tw2330 = None
+    try:
+        p = fetch.mock_price("2330", 30) if args.mock else fetch.fetch_price(
+            "2330", (dt.date.today() - dt.timedelta(days=14)).isoformat(), token)
+        tw2330 = float(p.close.iloc[-1])
+    except Exception as e:
+        print(f"[warn] 2330 close for ADR premium: {e}", file=sys.stderr)
+    night = overnight.collect(cfg.get("overnight", []), tw2330, args.mock)
+
     # 原物料
     commodities = []
     for c in cfg.get("commodities", []):
@@ -122,7 +132,7 @@ def main() -> int:
     (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")
 
-    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, views)
+    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, views, night)
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:

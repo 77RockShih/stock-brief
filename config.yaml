@@ -38,5 +38,24 @@ llm_model: claude-haiku-5-5
 
 
 # 專家看法：每天用 Claude 網路搜尋各檔股票近期的券商／分析師觀點（需 ANTHROPIC_API_KEY）
-# 每檔最多 3 次搜尋；ETF 略過
-expert_days: 14
+# 每檔最多 4 次搜尋；ETF 略過；expert_days 是往回找幾天
+expert_days: 30
+
+# 盤前：昨夜美股（Yahoo Finance 代號）；related 是相關持股，會在晨報裡標示
+# 台積電 ADR 會自動計算相對台股的溢價；美元/台幣與台指期夜盤會自動附上
+overnight:
+  - symbol: ^SOX
+    name: 費城半導體
+    related: ["3034", "3008", "6517", "2395"]
+  - symbol: ^IXIC
+    name: 那斯達克
+    related: []
+  - symbol: TSM
+    name: 台積電 ADR
+    related: ["0050"]
+  - symbol: AAPL
+    name: Apple
+    related: ["3008"]
+  - symbol: NVDA
+    name: NVIDIA
+    related: ["2395", "3008"]

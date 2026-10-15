@@ -31,10 +31,32 @@ def _rel_line(r: dict) -> str | None:
 
 
 def message_text(results: list[dict], dashboard_url: str | None, commodities: list[dict] | None = None,
-                 market: dict | None = None, views: dict[str, list[dict]] | None = None) -> str:
+                 market: dict | None = None, views: dict[str, list[dict]] | None = None,
+                 night: dict | None = None) -> str:
     date = results[0]["date"] if results else ""
     names = {r["id"]: r["name"] for r in results}
     lines = [f"<b>📈 台股晨報</b>（資料日 {date}）", ""]
+
+    if night and (night.get("us") or night.get("night")):
+        us = night.get("us", [])
+        d = us[0]["date"][5:].replace("-", "/") if us else ""
+        lines.append(f"<b>🌙 昨夜美股</b>（{d}）" if d else "<b>🌙 盤前</b>")
+        for u in us:
+            rel = "、".join(names.get(x, x) for x in u.get("related", []))
+            extra_ = f"｜ADR 溢價 {u['premium']:+.1f}%" if u.get("premium") is not None else ""
+            lines.append(f"　{u['name']} {u['close']:,.2f}｜{_pct(u['d1'])}{extra_}" + (f"（{rel}）" if rel else ""))
+        fx = night.get("fx")
+        if fx:
+            lines.append(f"　美元/台幣 {fx['close']:.3f}｜{_pct(fx['d1'])}")
+        n = night.get("night")
+        if n and n.get("last"):
+            chg = f"{n['change']:+,.0f}" if n.get("change") is not None else ""
+            pct = f"（{n['pct']:+.2f}%）" if n.get("pct") is not None else ""
+            vs = ""
+            if market and market.get("close"):
+                vs = f"｜比加權收盤 {n['last'] - market['close']:+,.0f} 點"
+            lines.append(f"　🌃 台指期夜盤 {n['last']:,.0f} {chg}{pct}{vs}")
+        lines.append("")
 
     if market:
         lines.append(f"<b>🏛 加權指數</b> {market['close']:,.0f}｜今日 {_pct(market['d1'])}・20 日 {_pct(market['d20'])}")

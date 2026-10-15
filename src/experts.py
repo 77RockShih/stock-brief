@@ -5,13 +5,15 @@
   - 要求標出是誰（機構或人名）、日期，找不到就回傳空清單
 """
 import datetime as dt
-import json
+from urllib.parse import urlsplit
 
 import requests
 
 API = "https://api.anthropic.com/v1/messages"
 
 PROMPT = """你是台股研究助理。請用網路搜尋，找出「{name}（{sid}）」最近 {days} 天內，專業人士對這檔股票的看法。
+
+建議的搜尋關鍵字（擇優使用）：「{name} 目標價」、「{name} {sid} 評等」、「{name} 投顧 報告」、「{name} 外資 目標價」。
 
 優先順序：
 1. 券商／投顧研究報告：評等、目標價調整（例如「某券商調升目標價至 X 元」）
@@ -53,7 +55,7 @@ def _call(api_key: str, model: str, messages: list) -> dict:
         API,
         headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
         json={"model": model, "max_tokens": 2000, "messages": messages,
-              "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3,
+              "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4,
                          "user_location": {"type": "approximate", "country": "TW", "timezone": "Asia/Taipei"}},
                         TOOL]},
         timeout=120,
@@ -61,6 +63,15 @@ def _call(api_key: str, model: str, messages: list) -> dict:
     if r.status_code != 200:
         raise RuntimeError(f"Claude API {r.status_code}: {r.text[:300]}")
     return r.json()
+
+
+def _norm(url: str) -> str:
+    """比對用的網址正規化：忽略 http/https、子網域、查詢參數與結尾斜線；網域主體與路徑必須相同。"""
+    u = urlsplit(url.strip())
+    labels = u.netloc.lower().split(":")[0].split(".")
+    # 只取主網域（news.cnyes.com、m.cnyes.com → cnyes.com；money.udn.com.tw → udn.com.tw），路徑仍須完全相同
+    keep = 3 if len(labels) >= 3 and labels[-2] in {"com", "org", "net", "gov", "edu"} and len(labels[-1]) == 2 else 2
+    return ".".join(labels[-keep:]) + u.path.rstrip("/")
 
 
 def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 14) -> list[dict]:
@@ -74,8 +85,15 @@ def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 14) -
         report = next((b for b in resp["content"] if b.get("type") == "tool_use" and b.get("name") == "report_views"), None)
         if report:
             views = report["input"].get("views", [])
-            # 只保留網址真的來自搜尋結果的看法
-            return [v for v in views if v.get("url") in seen_urls][:3]
+            # 只保留網址真的來自搜尋結果的看法（正規化後比對）
+            seen = {_norm(u) for u in seen_urls if u}
+            kept = [v for v in views if _norm(v.get("url", "")) in seen]
+            dropped = len(views) - len(kept)
+            if dropped:
+                print(f"[info] views {sid}: 回報 {len(views)} 則，{dropped} 則網址不在搜尋結果中已丟棄")
+            if not views:
+                print(f"[info] views {sid}: 搜尋 {len(seen_urls)} 個結果，沒有符合條件的專家看法")
+            return kept[:3]
         if resp.get("stop_reason") != "pause_turn":
             # 模型沒呼叫工具就結束了：提醒它用工具回報
             messages += [{"role": "assistant", "content": resp["content"]},

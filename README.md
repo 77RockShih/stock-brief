@@ -12,6 +12,7 @@ src/analyze.py       MA / RSI / MACD / 量比 + 訊號規則
 src/extra.py         月營收、個股新聞（FinMind）、原物料（Yahoo）
 src/summarize.py     Claude API 新聞摘要
 src/market.py        加權指數、相對大盤強弱
+src/overnight.py     盤前：昨夜美股（Yahoo）、台積電 ADR 溢價、台指期夜盤（期交所 OpenAPI）
 src/experts.py       專家看法：Claude web search 找券商／分析師對各檔的觀點
 tools/get_user_id.py 一次性工具：本機接收 LINE webhook 取得 user ID
 src/report.py        LINE 訊息 + Plotly dashboard
@@ -50,6 +51,6 @@ FINMIND_TOKEN=xxx python main.py --no-notify   # 真實資料
 - Public repo 的 Pages 任何人都能看到；不想公開持股就把 repo 設 private（Pages 需付費方案），或改部署到 Cloudflare Pages + Access。
 - GitHub Actions cron 可能延遲數分鐘到半小時。
 - LINE 免費方案每月推播則數有上限；每天 1 則在額度內，但不要拿它做盤中頻繁通知。
-- 專家看法：每檔最多 3 次網路搜尋（每 1,000 次 10 美元），只保留網址確實出自搜尋結果的看法；只推到 LINE。
+- 專家看法：每檔最多 4 次網路搜尋（每 1,000 次 10 美元），只保留網址確實出自搜尋結果的看法；只推到 LINE。
 - AI 摘要只根據新聞標題，可能遺漏內文細節；摘要只推到 LINE，不放公開 dashboard。
 - 技術指標僅供參考，規則上線前先回測。
