@@ -37,17 +37,6 @@ news_days: 2
 llm_model: claude-haiku-5-5
 
 
-# 大神文章（RSS）。可自行新增任何有 RSS 的部落格、Substack、Medium
-#   only_related: true → 只收「標題或摘要提到追蹤清單股票」的文章（適合文章量大的財經媒體）
-blogs:
-  - name: Damodaran
-    url: https://aswathdamodaran.blogspot.com/feeds/posts/default
-    note: 紐約大學估值大師，市場與估值觀點
-  - name: Fabricated Knowledge
-    url: https://www.fabricatedknowledge.com/feed
-    note: 半導體產業分析
-  - name: 股感 StockFeel
-    url: https://www.stockfeel.com.tw/feed/
-    note: 台股法說會與產業分析
-    only_related: true
-blog_max_posts: 5
+# 專家看法：每天用 Claude 網路搜尋各檔股票近期的券商／分析師觀點（需 ANTHROPIC_API_KEY）
+# 每檔最多 3 次搜尋；ETF 略過
+expert_days: 14

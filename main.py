@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-from src import analyze, blogs, extra, fetch, market as mkt, notify, report, summarize
+from src import analyze, experts, extra, fetch, market as mkt, notify, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
@@ -112,14 +112,9 @@ def main() -> int:
     for r in results:
         r["digest"] = digest.get(r["id"])
 
-    # 大神文章（RSS → Claude 摘要）；只進 LINE，不放公開 dashboard
-    posts = []
-    try:
-        raw = blogs.mock_posts() if args.mock else blogs.fetch_posts(cfg.get("blogs", []), results)
-        posts = summarize.summarize_posts(raw, os.getenv("ANTHROPIC_API_KEY"),
-                                          cfg.get("llm_model", "claude-haiku-5-5"), results)
-    except Exception as e:
-        print(f"[warn] blogs: {e}", file=sys.stderr)
+    # 專家看法（Claude + web search）；只進 LINE，不放公開 dashboard
+    views = experts.mock_views(results) if args.mock else experts.all_views(
+        results, os.getenv("ANTHROPIC_API_KEY"), cfg.get("llm_model", "claude-haiku-5-5"), cfg.get("expert_days", 14))
 
     OUT.mkdir(exist_ok=True)
     (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities, market), encoding="utf-8")
@@ -127,7 +122,7 @@ def main() -> int:
     (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")
 
-    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, posts)
+    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, views)
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:

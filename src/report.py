@@ -6,11 +6,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-ICON = {"bull": "🟢", "bear": "🔴", "info": "🟡"}
+ICON = {"bull": "🔴", "bear": "🟢", "info": "🟡"}  # 台股慣例：紅＝偏多、綠＝偏空
 UP, DOWN = "#d9363e", "#1a9850"  # 台股慣例：紅漲綠跌
 
 
-TONE = {"偏多": "🟢", "偏空": "🔴", "中性": "⚪"}
+TONE = {"偏多": "🔴", "偏空": "🟢", "中性": "⚪"}
+STANCE = {"看多": "🔴", "看空": "🟢", "中性": "⚪"}
 
 
 def _pct(v: float | None) -> str:
@@ -30,7 +31,7 @@ def _rel_line(r: dict) -> str | None:
 
 
 def message_text(results: list[dict], dashboard_url: str | None, commodities: list[dict] | None = None,
-                 market: dict | None = None, posts: list[dict] | None = None) -> str:
+                 market: dict | None = None, views: dict[str, list[dict]] | None = None) -> str:
     date = results[0]["date"] if results else ""
     names = {r["id"]: r["name"] for r in results}
     lines = [f"<b>📈 台股晨報</b>（資料日 {date}）", ""]
@@ -67,19 +68,16 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
         d = r.get("digest")
         if d:
             lines.append(f"　📰 {TONE.get(d['tone'], '')}{html.escape(d['summary'])}")
-        lines.append("")
-    if posts:
-        lines.append("<b>🧠 大神觀點</b>")
-        for p in posts:
-            rel = f"（相關：{p['related']}）" if p.get("related") else ""
-            lines.append(f"▸ {html.escape(p['source'])}｜{html.escape(p['title'])}")
-            if p.get("summary"):
-                lines.append(f"　{html.escape(p['summary'])}{html.escape(rel)}")
-            lines.append(f"　{p['link']}")
+        for v in (views or {}).get(r["id"], []):
+            tp = f"｜目標價 {v['target_price']:,.0f}" if v.get("target_price") else ""
+            date = f"（{v['date'][5:].replace('-', '/')}）" if v.get("date") else ""
+            lines.append(f"　👤 {STANCE.get(v['stance'], '')}{html.escape(v['who'])}{tp}{date}")
+            lines.append(f"　　{html.escape(v['view'])}")
+            lines.append(f"　　{v['url']}")
         lines.append("")
     if dashboard_url:
         lines.append(f'<a href="{dashboard_url}">開啟 Dashboard</a>')
-    lines.append("<i>技術指標與 AI 摘要僅供參考，非投資建議。</i>")
+    lines.append("<i>🔴 偏多　🟢 偏空　⚪ 中性｜技術指標、AI 摘要與專家看法僅供參考，非投資建議。</i>")
     return "\n".join(lines)
 
 
