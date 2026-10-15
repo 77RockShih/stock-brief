@@ -68,7 +68,7 @@ def main() -> int:
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:
-        notify.send_telegram(text, os.getenv("TG_TOKEN"), os.getenv("TG_CHAT_ID"))
+        notify.send_all(text, os.environ)
     return 0
 
 

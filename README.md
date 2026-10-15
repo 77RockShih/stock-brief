@@ -1,6 +1,6 @@
 # stock-brief
 
-每天早上自動分析台股 watchlist：GitHub Actions 抓 FinMind 資料 → 算技術指標與法人籌碼訊號 → 推 Telegram 摘要 + 更新 GitHub Pages dashboard。
+每天早上自動分析台股 watchlist：GitHub Actions 抓 FinMind 資料 → 算技術指標與法人籌碼訊號 → 推 Telegram / LINE 摘要 + 更新 GitHub Pages dashboard。
 
 ## 架構
 
@@ -10,7 +10,7 @@ main.py              進入點
 src/fetch.py         FinMind API（與 mock 資料）
 src/analyze.py       MA / RSI / MACD / 量比 + 訊號規則
 src/report.py        Telegram 文字 + Plotly dashboard
-src/notify.py        Telegram 推播
+src/notify.py        Telegram / LINE 推播
 .github/workflows/daily.yml   週一到五 07:30（台北）執行並部署 Pages
 ```
 
@@ -27,11 +27,22 @@ FINMIND_TOKEN=xxx python main.py --no-notify   # 真實資料
 
 1. **建 repo**：GitHub 上新增 repo（例如 `stock-brief`），把這個資料夾 push 上去。
 2. **FinMind token**：到 finmindtrade.com 註冊，在會員頁複製 API token。
-3. **Telegram bot**：
+3. **推播管道**（Telegram、LINE 擇一或兩個都設，有設定的就會推）
+
+   **Telegram bot**：
    - 找 `@BotFather` → `/newbot` → 拿到 bot token
    - 對你的 bot 隨便傳一則訊息
    - 打開 `https://api.telegram.org/bot<TOKEN>/getUpdates`，找 `"chat":{"id":...}` 就是 chat ID
-4. **Secrets**：repo → Settings → Secrets and variables → Actions，新增 `FINMIND_TOKEN`、`TG_TOKEN`、`TG_CHAT_ID`。
+
+   **LINE**（Messaging API）：
+   - 到 LINE Official Account Manager 建一個官方帳號，在設定裡啟用 Messaging API
+   - 到 LINE Developers Console 打開該 channel：
+     - Messaging API 分頁最下方 → 發行 **Channel access token (long-lived)** → 這是 `LINE_TOKEN`
+     - Basic settings 分頁最下方 **Your user ID**（U 開頭）→ 這是 `LINE_USER_ID`
+   - 用手機掃 Messaging API 分頁的 QR code，把 bot 加為好友
+   - 建議在官方帳號設定裡關掉「自動回應訊息」，避免它回你罐頭訊息
+
+4. **Secrets**：repo → Settings → Secrets and variables → Actions，新增 `FINMIND_TOKEN`，再加上 `TG_TOKEN` + `TG_CHAT_ID` 或 `LINE_TOKEN` + `LINE_USER_ID`。
 5. **開 Pages**：repo → Settings → Pages → Source 選 **GitHub Actions**。
 6. **手動跑一次**：Actions 分頁 → Daily Stock Brief → Run workflow。成功後手機就會收到訊息。
 
@@ -39,4 +50,5 @@ FINMIND_TOKEN=xxx python main.py --no-notify   # 真實資料
 
 - Public repo 的 Pages 任何人都能看到；不想公開持股就把 repo 設 private（Pages 需付費方案），或改部署到 Cloudflare Pages + Access。
 - GitHub Actions cron 可能延遲數分鐘到半小時。
+- LINE 免費方案每月推播則數有上限；每天 1 則在額度內，但不要拿它做盤中頻繁通知。
 - 技術指標僅供參考，規則上線前先回測。
