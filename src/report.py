@@ -10,9 +10,32 @@ ICON = {"bull": "🟢", "bear": "🔴", "info": "🟡"}
 UP, DOWN = "#d9363e", "#1a9850"  # 台股慣例：紅漲綠跌
 
 
-def message_text(results: list[dict], dashboard_url: str | None) -> str:
+TONE = {"偏多": "🟢", "偏空": "🔴", "中性": "⚪"}
+
+
+def _pct(v: float | None) -> str:
+    return "—" if v is None else f"{v:+.1f}%"
+
+
+def _rev_text(rev: dict | None) -> str | None:
+    if not rev:
+        return None
+    return f"{rev['month']}月營收 {rev['revenue_e8']:,.1f} 億｜YoY {_pct(rev['yoy'])}・MoM {_pct(rev['mom'])}"
+
+
+def message_text(results: list[dict], dashboard_url: str | None, commodities: list[dict] | None = None) -> str:
     date = results[0]["date"] if results else ""
+    names = {r["id"]: r["name"] for r in results}
     lines = [f"<b>📈 台股晨報</b>（資料日 {date}）", ""]
+
+    if commodities:
+        lines.append("<b>🔩 原物料</b>")
+        for c in commodities:
+            rel = "、".join(names.get(x, x) for x in c.get("related", []))
+            lines.append(f"　{c['name']} {c['close']:.3f} {c.get('unit', '')}｜日 {_pct(c['d1'])}・週 {_pct(c['d5'])}・月 {_pct(c['d20'])}"
+                         + (f"（{rel}）" if rel else ""))
+        lines.append("")
+
     for r in sorted(results, key=lambda x: -x["score"]):
         arrow = "▲" if r["change_pct"] >= 0 else "▼"
         lines.append(
@@ -20,14 +43,20 @@ def message_text(results: list[dict], dashboard_url: str | None) -> str:
         )
         if r["foreign"] is not None:
             lines.append(f"　外資 {r['foreign']:+,.0f} 張・投信 {r['trust']:+,.0f} 張")
+        rev = _rev_text(r.get("revenue"))
+        if rev:
+            lines.append(f"　📊 {rev}")
         for kind, text in r["signals"]:
             lines.append(f"　{ICON[kind]} {html.escape(text)}")
         if not r["signals"]:
-            lines.append("　⚪ 無特殊訊號")
+            lines.append("　⚪ 無技術訊號")
+        d = r.get("digest")
+        if d:
+            lines.append(f"　📰 {TONE.get(d['tone'], '')}{html.escape(d['summary'])}")
         lines.append("")
     if dashboard_url:
         lines.append(f'<a href="{dashboard_url}">開啟 Dashboard</a>')
-    lines.append("<i>技術指標僅供參考，非投資建議。</i>")
+    lines.append("<i>技術指標與 AI 摘要僅供參考，非投資建議。</i>")
     return "\n".join(lines)
 
 
@@ -64,7 +93,7 @@ def _figure(df: pd.DataFrame, inst: pd.DataFrame, title: str) -> go.Figure:
     return fig
 
 
-def dashboard_html(results: list[dict], frames: dict, chart_days: int) -> str:
+def dashboard_html(results: list[dict], frames: dict, chart_days: int, commodities: list[dict] | None = None) -> str:
     date = results[0]["date"] if results else ""
     rows, charts = [], []
     for r in sorted(results, key=lambda x: -x["score"]):
@@ -72,14 +101,35 @@ def dashboard_html(results: list[dict], frames: dict, chart_days: int) -> str:
         cls = "up" if r["change_pct"] >= 0 else "down"
         sig = "".join(f'<span class="tag {k}">{html.escape(t)}</span>' for k, t in r["signals"]) or '<span class="muted">—</span>'
         foreign = f"{r['foreign']:+,.0f}" if r["foreign"] is not None else "—"
+        rv = r.get("revenue")
+        yoy = '<span class="muted">—</span>' if not rv or rv["yoy"] is None else \
+            f'<span class="{"up" if rv["yoy"] >= 0 else "down"}">{rv["yoy"]:+.1f}%</span><div class="muted">{rv["month"]}月</div>'
+        news_html = "".join(
+            f'<li><a href="{html.escape(n["link"])}" target="_blank" rel="noopener">{html.escape(n["title"])}</a>'
+            f' <span class="muted">{html.escape(str(n["source"]))}・{html.escape(str(n["date"])[:10])}</span></li>'
+            for n in r.get("news", [])[:6])
         rows.append(
             f'<tr><td><a href="#s{r["id"]}">{html.escape(r["name"])}</a><div class="muted">{r["id"]}</div></td>'
             f'<td class="num">{r["close"]:.2f}</td><td class="num {cls}">{r["change_pct"]:+.2f}%</td>'
-            f'<td class="num">{r["rsi"]:.0f}</td><td class="num">{foreign}</td><td>{sig}</td></tr>'
+            f'<td class="num">{r["rsi"]:.0f}</td><td class="num">{foreign}</td><td class="num">{yoy}</td><td>{sig}</td></tr>'
         )
         fig = _figure(df.tail(chart_days), inst, f'{r["name"]} {r["id"]}')
         charts.append(f'<section id="s{r["id"]}">' + fig.to_html(full_html=False, include_plotlyjs=False,
-                                                                 config={"displayModeBar": False}) + "</section>")
+                                                                 config={"displayModeBar": False})
+                      + (f'<div class="news"><div class="muted">相關新聞</div><ul>{news_html}</ul></div>' if news_html else "")
+                      + "</section>")
+
+    comm = ""
+    if commodities:
+        crow = "".join(
+            f'<tr><td>{html.escape(c["name"])}<div class="muted">{html.escape(c["symbol"])}</div></td>'
+            f'<td class="num">{c["close"]:.3f}</td>'
+            + "".join(f'<td class="num {"up" if c[k] >= 0 else "down"}">{c[k]:+.1f}%</td>' for k in ("d1", "d5", "d20"))
+            + f'<td>{"、".join(html.escape(str(x)) for x in c.get("related", []))}</td></tr>'
+            for c in commodities)
+        comm = ('<h2>原物料</h2><div class="card"><table><thead><tr><th>品項</th><th class="num">價格</th>'
+                '<th class="num">日</th><th class="num">週</th><th class="num">月</th><th>相關持股</th></tr></thead>'
+                f'<tbody>{crow}</tbody></table></div>')
 
     return f"""<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
@@ -107,13 +157,16 @@ a {{ color:inherit }}
 .tag.bull {{ background:#fde8e8; color:#a4161a }} .tag.bear {{ background:#e3f4e8; color:#11643a }} .tag.info {{ background:#fff4d6; color:#7a5a00 }}
 section {{ background:var(--card); border:1px solid var(--line); border-radius:10px; margin:16px 0; padding:4px }}
 footer {{ color:var(--muted); font-size:12px; margin:24px 0 }}
+h2 {{ font-size:16px; margin:20px 0 4px }}
+.news {{ padding:4px 12px 10px }} .news ul {{ margin:4px 0; padding-left:18px }} .news li {{ margin:3px 0; font-size:14px }}
 </style></head><body><main>
 <h1>台股晨報</h1><div class="muted">資料日 {date}・依訊號分數排序</div>
 <div class="card"><table>
-<thead><tr><th>股票</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">RSI</th><th class="num">外資(張)</th><th>訊號</th></tr></thead>
+<thead><tr><th>股票</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">RSI</th><th class="num">外資(張)</th><th class="num">營收YoY</th><th>訊號</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
+{comm}
 {''.join(charts)}
-<footer>技術指標僅供參考，非投資建議。資料來源：FinMind。</footer>
+<footer>技術指標僅供參考，非投資建議。資料來源：FinMind、Yahoo Finance。</footer>
 </main></body></html>"""
 
 

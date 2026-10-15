@@ -22,3 +22,16 @@ rules:
 
 # Dashboard 每檔顯示多少天 K 線
 chart_days: 120
+
+# 原物料（Yahoo Finance 代號）；related 是相關持股，會在晨報裡標示
+commodities:
+  - symbol: HG=F
+    name: COMEX 銅
+    unit: USD/lb
+    related: ["2009"]
+
+# 抓最近幾天的個股新聞
+news_days: 2
+
+# 新聞摘要使用的 Claude 模型（需設定 ANTHROPIC_API_KEY；沒設就只列標題）
+llm_model: claude-haiku-5-5

@@ -15,10 +15,29 @@ from pathlib import Path
 
 import yaml
 
-from src import analyze, fetch, notify, report
+from src import analyze, extra, fetch, notify, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
+
+
+def _fundamentals(sid: str, name: str, cfg: dict, token: str | None, mock: bool):
+    """月營收摘要 + 新聞列表；失敗時回傳空值，不影響主流程。"""
+    rev, news = None, []
+    try:
+        rdf = extra.mock_revenue(sid) if mock else extra.fetch_revenue(sid, token)
+        rev = extra.revenue_summary(rdf)
+    except Exception as e:
+        print(f"[warn] revenue {sid}: {e}", file=sys.stderr)
+    if sid.startswith("00"):  # ETF 沒有月營收、新聞也多半是雜訊
+        return None, []
+    try:
+        news = extra.mock_news(sid, name) if mock else extra.fetch_news(sid, cfg.get("news_days", 2), token)
+    except Exception as e:
+        print(f"[warn] news {sid}: {e}", file=sys.stderr)
+    if not mock:
+        time.sleep(0.5)
+    return rev, news
 
 
 def main() -> int:
@@ -47,6 +66,7 @@ def main() -> int:
             df = analyze.add_indicators(price)
             r = analyze.evaluate(df, inst, cfg["rules"])
             r.update(id=sid, name=name)
+            r["revenue"], r["news"] = _fundamentals(sid, name, cfg, token, args.mock)
             results.append(r)
             frames[sid] = (df, inst)
             print(f"[ok] {sid} {name}: {len(r['signals'])} signals")
@@ -58,13 +78,35 @@ def main() -> int:
         print("全部失敗，結束", file=sys.stderr)
         return 1
 
+    # 原物料
+    commodities = []
+    for c in cfg.get("commodities", []):
+        try:
+            cdf = extra.mock_commodity(c["symbol"]) if args.mock else extra.fetch_commodity(c["symbol"])
+            s = extra.commodity_summary(cdf)
+            if s:
+                commodities.append({**c, **s})
+        except Exception as e:
+            print(f"[fail] commodity {c['symbol']}: {e}", file=sys.stderr)
+
+    # 新聞摘要（Claude API）
+    news_in = {r["id"]: {"name": r["name"], "items": r["news"]} for r in results}
+    try:
+        digest = summarize.summarize_news(
+            news_in, os.getenv("ANTHROPIC_API_KEY"), cfg.get("llm_model", "claude-haiku-5-5"))
+    except Exception as e:  # key 過期或 API 錯誤 → 退回只列標題
+        print(f"[warn] summarize failed, fallback to headlines: {e}", file=sys.stderr)
+        digest = summarize.summarize_news(news_in, None, "")
+    for r in results:
+        r["digest"] = digest.get(r["id"])
+
     OUT.mkdir(exist_ok=True)
-    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"]), encoding="utf-8")
+    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities), encoding="utf-8")
     (OUT / "manifest.json").write_text(report.MANIFEST, encoding="utf-8")
-    (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")
 
-    text = report.message_text(results, os.getenv("DASHBOARD_URL"))
+    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities)
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:
