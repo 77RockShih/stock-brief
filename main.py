@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-from src import analyze, experts, extra, fetch, market as mkt, notify, overnight, report, summarize
+from src import advisor, analyze, experts, extra, fetch, market as mkt, notify, overnight, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
@@ -80,12 +80,19 @@ def main() -> int:
         return 1
 
     # 大盤 + 相對強弱
-    market = None
+    market, mdf = None, None
     try:
         mdf = mkt.mock_taiex() if args.mock else mkt.fetch_taiex(start, token)
         market = mkt.market_summary(mdf)
     except Exception as e:
         print(f"[warn] market: {e}", file=sys.stderr)
+    try:
+        tinst = mkt.mock_total_inst() if args.mock else mkt.fetch_total_inst(
+            (dt.date.today() - dt.timedelta(days=10)).isoformat(), token)
+        if market is not None and tinst:
+            market["inst"] = tinst
+    except Exception as e:  # 抓不到就略過，不影響主流程
+        print(f"[warn] total institutional: {e}", file=sys.stderr)
     for r in results:
         r["rel1"] = r["change_pct"] - market["d1"] if market else None
         r["rel20"] = r["ret20"] - market["d20"] if market else None
@@ -98,7 +105,9 @@ def main() -> int:
         tw2330 = float(p.close.iloc[-1])
     except Exception as e:
         print(f"[warn] 2330 close for ADR premium: {e}", file=sys.stderr)
-    night = overnight.collect(cfg.get("overnight", []), tw2330, args.mock)
+    trading_dates = [d.date() for d in mdf["date"]] if mdf is not None else []
+    last_close = dt.date.fromisoformat(results[0]["date"])
+    night = overnight.collect(cfg.get("overnight", []), tw2330, args.mock, last_close, trading_dates)
 
     # 原物料
     commodities = []
@@ -122,12 +131,21 @@ def main() -> int:
     for r in results:
         r["digest"] = digest.get(r["id"])
 
-    # 專家看法（Claude + web search）；只進 LINE，不放公開 dashboard
+    # 專家看法（Claude + web search）；細節放 Dashboard
     views = experts.mock_views(results) if args.mock else experts.all_views(
         results, os.getenv("ANTHROPIC_API_KEY"), cfg.get("llm_model", "claude-haiku-5-5"), cfg.get("expert_days", 14))
 
+    # 每檔今日操作傾向（Claude，一次打包；失敗退回規則）
+    if args.mock:
+        advice = advisor.mock_advise(results, frames)
+    else:
+        advice = advisor.advise(results, frames, views, night, market, os.getenv("ANTHROPIC_API_KEY"),
+                                cfg.get("advisor_model", "claude-opus-5-5"))
+    for r in results:
+        r["advice"] = advice.get(r["id"])
+
     OUT.mkdir(exist_ok=True)
-    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities, market), encoding="utf-8")
+    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities, market, views, night), encoding="utf-8")
     (OUT / "manifest.json").write_text(report.MANIFEST, encoding="utf-8")
     (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")

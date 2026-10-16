@@ -10,7 +10,9 @@ API = "https://api.finmindtrade.com/api/v4/data"
 
 
 def _get(dataset: str, stock_id: str, start: str, token: str | None) -> pd.DataFrame:
-    params = {"dataset": dataset, "data_id": stock_id, "start_date": start}
+    params = {"dataset": dataset, "start_date": start}
+    if stock_id:  # 全市場型 dataset（如 TaiwanStockTotalInstitutionalInvestors）不帶 data_id
+        params["data_id"] = stock_id
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     r = requests.get(API, params=params, headers=headers, timeout=30)
     r.raise_for_status()

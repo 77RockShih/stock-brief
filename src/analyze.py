@@ -65,7 +65,8 @@ def evaluate(df: pd.DataFrame, inst: pd.DataFrame, rules: dict) -> dict:
 
     vr = t["volume"] / t["vol_ma20"] if t["vol_ma20"] else 0
     if vr >= rules["volume_spike_ratio"]:
-        signals.append(("info", f"爆量 {vr:.1f} 倍均量"))
+        up = t["close"] >= y["close"]  # 爆量要看方向：價漲量增偏多、價跌量增偏空
+        signals.append(("bull" if up else "bear", f"爆量{'上漲' if up else '下跌'} {vr:.1f} 倍均量"))
 
     w = rules["new_high_window"]
     if t["close"] >= df["close"].iloc[-w:].max():
@@ -91,6 +92,10 @@ def evaluate(df: pd.DataFrame, inst: pd.DataFrame, rules: dict) -> dict:
         "foreign": float(last_inst["foreign"]) if last_inst is not None else None,
         "trust": float(last_inst["trust"]) if last_inst is not None else None,
         "foreign_streak": streak,
+        "trust_streak": _streak(inst["trust"]) if not inst.empty else 0,
+        # 金額（億元）為近似值：淨張數 × 1000 股 × 當日收盤價。實際成交均價不同，僅供跨股比較規模。
+        "foreign_amt": float(last_inst["foreign"]) * 1000 * float(t["close"]) / 1e8 if last_inst is not None else None,
+        "trust_amt": float(last_inst["trust"]) * 1000 * float(t["close"]) / 1e8 if last_inst is not None else None,
         "signals": signals,
         "score": score,
     }

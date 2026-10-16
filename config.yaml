@@ -36,6 +36,11 @@ news_days: 2
 # 新聞摘要使用的 Claude 模型（需設定 ANTHROPIC_API_KEY；沒設就只列標題）
 llm_model: claude-haiku-5-5
 
+# 每檔今日操作傾向（所有股票打包成一次呼叫）。判斷品質比摘要重要，預設用 Opus：
+#   claude-opus-5-5   約每月 1 美元（$4 / $20 per MTok）
+#   claude-sonnet-5-5 約每月 0.4 美元（$2 / $10 per MTok）
+advisor_model: claude-opus-5-5
+
 
 # 專家看法：每天用 Claude 網路搜尋各檔股票近期的券商／分析師觀點（需 ANTHROPIC_API_KEY）
 # 每檔最多 4 次搜尋；ETF 略過；expert_days 是往回找幾天
