@@ -1,4 +1,5 @@
 """Build LINE message text and the HTML dashboard."""
+import datetime as dt
 import html
 import json
 
@@ -52,10 +53,7 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
         if n and n.get("last"):
             chg = f"{n['change']:+,.0f}" if n.get("change") is not None else ""
             pct = f"（{n['pct']:+.2f}%）" if n.get("pct") is not None else ""
-            vs = ""
-            if market and market.get("close"):
-                vs = f"｜比加權收盤 {n['last'] - market['close']:+,.0f} 點"
-            lines.append(f"　🌃 台指期夜盤 {n['last']:,.0f} {chg}{pct}{vs}")
+            lines.append(f"　🌃 台指期夜盤 {n['last']:,.0f}｜較日盤 {chg}{pct}")
         lines.append("")
 
     if market:
@@ -93,13 +91,15 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
         for v in (views or {}).get(r["id"], []):
             tp = f"｜目標價 {v['target_price']:,.0f}" if v.get("target_price") else ""
             date = f"（{v['date'][5:].replace('-', '/')}）" if v.get("date") else ""
-            lines.append(f"　👤 {STANCE.get(v['stance'], '')}{html.escape(v['who'])}{tp}{date}")
+            icon = STANCE.get(v.get("stance"), "🔴" if "多" in str(v.get("stance")) else "🟢" if "空" in str(v.get("stance")) else "⚪")
+            lines.append(f"　👤 {icon}{html.escape(v['who'])}{tp}{date}")
             lines.append(f"　　{html.escape(v['view'])}")
             lines.append(f"　　{v['url']}")
         lines.append("")
     if dashboard_url:
         lines.append(f'<a href="{dashboard_url}">開啟 Dashboard</a>')
-    lines.append("<i>🔴 偏多　🟢 偏空　⚪ 中性｜技術指標、AI 摘要與專家看法僅供參考，非投資建議。</i>")
+    now = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).strftime("%m/%d %H:%M")
+    lines.append(f"<i>🔴 偏多　🟢 偏空　⚪ 中性｜產生於 {now}｜技術指標、AI 摘要與專家看法僅供參考，非投資建議。</i>")
     return "\n".join(lines)
 
 
