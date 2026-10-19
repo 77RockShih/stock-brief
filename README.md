@@ -14,10 +14,13 @@ src/summarize.py     Claude API 新聞摘要
 src/market.py        加權指數、相對大盤強弱
 src/overnight.py     盤前：昨夜美股（Yahoo）、台積電 ADR 溢價、台指期夜盤（期交所 OpenAPI）
 src/experts.py       專家看法：Claude web search 找券商／分析師對各檔的觀點
+src/advisor.py       每檔今日操作傾向（Claude，一次打包）；支撐／壓力由程式計算
+src/history.py       判斷紀錄 data/advice_history.csv 與事後驗證
+tools/backtest.py    回測各 stance 在 1／5／20 日後的相對大盤報酬與勝率
 tools/get_user_id.py 一次性工具：本機接收 LINE webhook 取得 user ID
 src/report.py        LINE 訊息 + Plotly dashboard
 src/notify.py        LINE 推播
-.github/workflows/daily.yml   週一到五 07:30（台北）執行並部署 Pages
+.github/workflows/daily.yml   週一到五 06:41（台北）執行、commit 判斷紀錄、部署 Pages
 ```
 
 ## 本機測試
@@ -28,6 +31,12 @@ python main.py --mock            # 模擬資料，不連網
 open site/index.html
 FINMIND_TOKEN=xxx python main.py --no-notify   # 真實資料
 ```
+
+## 判斷紀錄與回測
+
+- 每天的判斷會 append 到 `data/advice_history.csv`，由 workflow commit 回 repo（所以本機改 code 前請先 `git pull`）。
+- 回測：`FINMIND_TOKEN=xxx python tools/backtest.py`（`--source all|rule` 可對照規則判斷；`--mock` 不連網測試）。
+- 每週一晨報最後一行是上週 AI 判斷的隔日命中率。週五的判斷要等週一收盤才能驗證，會算在下一次。
 
 ## 部署步驟
 
@@ -49,8 +58,8 @@ FINMIND_TOKEN=xxx python main.py --no-notify   # 真實資料
 ## 注意
 
 - Public repo 的 Pages 任何人都能看到；不想公開持股就把 repo 設 private（Pages 需付費方案），或改部署到 Cloudflare Pages + Access。
-- GitHub Actions cron 可能延遲數分鐘到半小時。
+- GitHub Actions cron 可能延遲數分鐘到一兩小時（已避開整點／半點）。
 - LINE 免費方案每月推播則數有上限；每天 1 則在額度內，但不要拿它做盤中頻繁通知。
-- 專家看法：每檔最多 4 次網路搜尋（每 1,000 次 10 美元），只保留網址確實出自搜尋結果的看法；只推到 LINE。
-- AI 摘要只根據新聞標題，可能遺漏內文細節；摘要只推到 LINE，不放公開 dashboard。
+- 專家看法：每檔最多 4 次網路搜尋（每 1,000 次 10 美元），只保留網址確實出自搜尋結果的看法；細節在 Dashboard。
+- AI 摘要只根據新聞標題，可能遺漏內文細節。
 - 技術指標僅供參考，規則上線前先回測。

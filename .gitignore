@@ -3,4 +3,4 @@ __pycache__/
 .venv/
 .env
 site/
-data/
+data/*.mock.csv
