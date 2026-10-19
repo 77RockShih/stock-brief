@@ -10,9 +10,8 @@ import json
 import re
 
 import pandas as pd
-import requests
+from .claude_api import call_tool
 
-API = "https://api.anthropic.com/v1/messages"
 STANCES = ["偏多", "觀望", "偏空"]
 CONFIDENCE = ["高", "中", "低"]
 BANNED = ["買進", "賣出", "加碼", "減碼", "停損", "停利", "進場", "出場", "布局", "抄底", "放空"]
@@ -27,7 +26,9 @@ SYSTEM = """你是台股短線研究助理，為投資人整理每檔追蹤股�
 5. 訊號互相矛盾或資料不足時，給「觀望」＋「低」信心，不要硬給方向。
 6. reason：繁體中文 30 字內，必須引用輸入中具體的資料點（例如「外資連7日買超＋站穩MA20」）。
 7. risk：繁體中文 20 字內，指出最大的反向風險（例如「外資目標價已低於現價」「RSI過熱」）。
-8. 每一檔都要回報，id 必須和輸入相同。"""
+8. 每一檔都要回報，id 必須和輸入相同。
+
+必須呼叫 report_advice 工具一次回報所有股票，不要只用文字回答。"""
 
 TOOL = {
     "name": "report_advice",
@@ -127,17 +128,11 @@ def advise(results: list[dict], frames: dict, views: dict, night: dict, market: 
     if api_key:
         try:
             payload = build_input(results, frames, views, night, market)
-            resp = requests.post(
-                API,
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json={"model": model, "max_tokens": 3000, "system": SYSTEM, "tools": [TOOL],
-                      "tool_choice": {"type": "tool", "name": "report_advice"},
-                      "messages": [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]},
-                timeout=120,
-            )
-            if resp.status_code != 200:
-                raise RuntimeError(f"Claude API {resp.status_code}: {resp.text[:300]}")
-            block = next(b for b in resp.json()["content"] if b.get("type") == "tool_use")
+            data = call_tool(api_key, model, json.dumps(payload, ensure_ascii=False), TOOL, system=SYSTEM,
+                             max_tokens=3000, label="advisor")
+            if data is None:
+                raise RuntimeError("no tool_use in response")
+            block = {"input": data}
             for it in block["input"].get("items", []):
                 sid = str(it.get("id"))
                 if sid in out and _valid(it):

@@ -11,7 +11,9 @@ import requests
 
 API = "https://api.anthropic.com/v1/messages"
 
-PROMPT = """你是台股研究助理。請用網路搜尋，找出「{name}（{sid}）」最近 {days} 天內，專業人士對這檔股票的看法。
+PROMPT = """你是台股研究助理。今天是 {today}（台北時間）。
+請用網路搜尋，找出 {since} 之後（最近 {days} 天內），專業人士對「{name}（{sid}）」這檔股票的看法。
+判斷文章日期時以今天 {today} 為準；{since} 之前的報告不要收。
 
 建議的搜尋關鍵字（擇優使用）：「{name} 目標價」、「{name} {sid} 評等」、「{name} 投顧 報告」、「{name} 外資 目標價」。
 
@@ -27,6 +29,8 @@ PROMPT = """你是台股研究助理。請用網路搜尋，找出「{name}（{s
 - 日期無法確定就填空字串；沒有目標價就填 null
 - 最多 3 則，挑最新、最具體的；真的找不到就回報空清單，不要編造
 """
+
+TPE = dt.timezone(dt.timedelta(hours=8))
 
 TOOL = {
     "name": "report_views",
@@ -74,11 +78,24 @@ def _norm(url: str) -> str:
     return ".".join(labels[-keep:]) + u.path.rstrip("/")
 
 
-def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 14) -> list[dict]:
-    messages = [{"role": "user", "content": PROMPT.format(name=name, sid=sid, days=days)}]
+def _text(content: list) -> str:
+    return "".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
+
+
+def build_prompt(sid: str, name: str, days: int, today: dt.date | None = None) -> str:
+    today = today or dt.datetime.now(TPE).date()
+    since = today - dt.timedelta(days=days)
+    return PROMPT.format(name=name, sid=sid, days=days, today=today.isoformat(), since=since.isoformat())
+
+
+def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 30) -> list[dict]:
+    messages = [{"role": "user", "content": build_prompt(sid, name, days)}]
+    texts: list[str] = []
     seen_urls: set[str] = set()
     for _ in range(4):  # 搜尋可能分好幾輪（pause_turn）
         resp = _call(api_key, model, messages)
+        if _text(resp["content"]):
+            texts.append(_text(resp["content"]))
         for b in resp["content"]:
             if b.get("type") == "web_search_tool_result" and isinstance(b.get("content"), list):
                 seen_urls.update(x.get("url", "") for x in b["content"])
@@ -92,7 +109,8 @@ def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 14) -
             if dropped:
                 print(f"[info] views {sid}: 回報 {len(views)} 則，{dropped} 則網址不在搜尋結果中已丟棄")
             if not views:
-                print(f"[info] views {sid}: 搜尋 {len(seen_urls)} 個結果，沒有符合條件的專家看法")
+                print(f"[info] views {sid}: 搜尋 {len(seen_urls)} 個結果，模型回報空清單。"
+                      f"模型文字前 300 字：{' '.join(texts)[:300]!r}")
             return kept[:3]
         if resp.get("stop_reason") != "pause_turn":
             # 模型沒呼叫工具就結束了：提醒它用工具回報
@@ -100,10 +118,11 @@ def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 14) -
                          {"role": "user", "content": "請呼叫 report_views 回報結果（找不到就回報空清單）。"}]
         else:
             messages += [{"role": "assistant", "content": resp["content"]}]
+    print(f"[info] views {sid}: 模型始終沒有呼叫 report_views。模型文字前 300 字：{' '.join(texts)[:300]!r}")
     return []
 
 
-def all_views(results: list[dict], api_key: str | None, model: str, days: int = 14) -> dict[str, list[dict]]:
+def all_views(results: list[dict], api_key: str | None, model: str, days: int = 30) -> dict[str, list[dict]]:
     if not api_key:
         return {}
     out = {}

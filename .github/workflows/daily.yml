@@ -4,9 +4,15 @@ on:
   schedule:
     - cron: '41 22 * * 0-4'   # UTC 22:41 = 台北 06:41，週一到週五（避開整點／半點的排程尖峰）
   workflow_dispatch:           # Actions 頁面可手動觸發
+    inputs:
+      only:
+        description: '測試用：只跑指定股票（例如 3008）。不推 LINE、不寫紀錄、不更新 Dashboard。留空 = 正常執行'
+        required: false
+        default: ''
+
 
 permissions:
-  contents: read
+  contents: write   # 每天把 data/advice_history.csv commit 回 repo
   pages: write
   id-token: write
 
@@ -18,25 +24,39 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
       - run: pip install -r requirements.txt
       - name: Run analysis
-        run: python main.py
+        run: python main.py ${ONLY:+--only "$ONLY" --no-notify}
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-      - uses: actions/upload-pages-artifact@v3
+          ONLY: ${{ inputs.only }}
+      - name: Commit advice history
+        if: ${{ !inputs.only }}
+        continue-on-error: true   # 紀錄失敗不影響 dashboard 部署
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/advice_history.csv
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "Record advice history $(TZ=Asia/Taipei date +%F)"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+      - if: ${{ !inputs.only }}
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
   deploy:
+    if: ${{ !inputs.only }}
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -44,4 +64,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

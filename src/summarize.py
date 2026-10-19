@@ -1,13 +1,11 @@
 """Claude API: turn each stock's news headlines into a 1–2 line takeaway.
 
-用 tool use + JSON schema 強制結構化輸出，避免標題裡的引號等字元弄壞 JSON。
+用 tool use + JSON schema 取得結構化輸出（不設 tool_choice，見 claude_api.py），避免標題裡的引號等字元弄壞 JSON。
 """
 import json
 import re
 
-import requests
-
-API = "https://api.anthropic.com/v1/messages"
+from .claude_api import call_tool
 
 PROMPT = """你是台股研究助理。以下是投資人持股的最新新聞標題（只有標題，沒有內文）。
 請為「有新聞」的每一檔股票寫一則重點，並呼叫 report_news 工具回報。規則：
@@ -73,20 +71,8 @@ def summarize_news(news: dict[str, dict], api_key: str | None, model: str) -> di
         # 沒有 API key 或 API 失敗：退回成直接列前兩則（已清理）標題
         return {sid: {"tone": "", "summary": "；".join(v["titles"][:2])} for sid, v in payload.items()}
 
-    r = requests.post(
-        API,
-        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        json={
-            "model": model,
-            "max_tokens": 2000,
-            "tools": [TOOL],
-            "tool_choice": {"type": "tool", "name": "report_news"},
-            "messages": [{"role": "user", "content": PROMPT + json.dumps(payload, ensure_ascii=False)}],
-        },
-        timeout=60,
-    )
-    if r.status_code != 200:
-        raise RuntimeError(f"Claude API {r.status_code}: {r.text[:300]}")
-    block = next(b for b in r.json()["content"] if b.get("type") == "tool_use")
-    return {str(i["id"]): {"tone": i.get("tone", ""), "summary": i["summary"]} for i in block["input"]["items"]}
-
+    data = call_tool(api_key, model, PROMPT + json.dumps(payload, ensure_ascii=False), TOOL,
+                     max_tokens=2000, timeout=60, label="summarize")
+    if data is None:
+        raise RuntimeError("no tool_use in response")
+    return {str(i["id"]): {"tone": i.get("tone", ""), "summary": i["summary"]} for i in data.get("items", [])}

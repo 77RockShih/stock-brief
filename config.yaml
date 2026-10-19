@@ -45,6 +45,8 @@ advisor_model: claude-opus-5-5
 # 專家看法：每天用 Claude 網路搜尋各檔股票近期的券商／分析師觀點（需 ANTHROPIC_API_KEY）
 # 每檔最多 4 次搜尋；ETF 略過；expert_days 是往回找幾天
 expert_days: 30
+# 專家看法使用的模型；留空則沿用 llm_model。若常常回報空清單，可改成 claude-sonnet-5-5
+expert_model:
 
 # 盤前：昨夜美股（Yahoo Finance 代號）；related 是相關持股，會在晨報裡標示
 # 台積電 ADR 會自動計算相對台股的溢價；美元/台幣與台指期夜盤會自動附上

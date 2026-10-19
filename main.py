@@ -13,12 +13,15 @@ import sys
 import time
 from pathlib import Path
 
+import pandas as pd
 import yaml
 
-from src import advisor, analyze, experts, extra, fetch, market as mkt, notify, overnight, report, summarize
+from src import advisor, analyze, experts, extra, fetch, history, market as mkt, notify, overnight, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
+HISTORY = ROOT / "data" / "advice_history.csv"            # 正式紀錄（commit 進 repo）
+HISTORY_MOCK = ROOT / "data" / "advice_history.mock.csv"  # --mock 用，不進 repo
 
 
 def _fundamentals(sid: str, name: str, cfg: dict, token: str | None, mock: bool):
@@ -44,14 +47,23 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mock", action="store_true", help="use synthetic data")
     ap.add_argument("--no-notify", action="store_true")
+    ap.add_argument("--weekly", action="store_true", help="強制加上週命中率（測試用；正常只在週一）")
+    ap.add_argument("--only", help="只跑指定股票（逗號分隔，例如 3008），測試用；不寫入判斷紀錄")
     args = ap.parse_args()
 
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
     token = os.getenv("FINMIND_TOKEN")
     start = (dt.date.today() - dt.timedelta(days=int(cfg["lookback_days"] * 1.5))).isoformat()
 
+    watch = {str(k): v for k, v in cfg["watchlist"].items()}
+    if args.only:
+        keep = {x.strip() for x in args.only.split(",")}
+        watch = {k: v for k, v in watch.items() if k in keep}
+        if not watch:
+            print(f"--only {args.only} 不在 watchlist 中", file=sys.stderr)
+            return 1
     results, frames, failed = [], {}, []
-    for sid, name in cfg["watchlist"].items():
+    for sid, name in watch.items():
         sid = str(sid)
         try:
             if args.mock:
@@ -133,7 +145,8 @@ def main() -> int:
 
     # 專家看法（Claude + web search）；細節放 Dashboard
     views = experts.mock_views(results) if args.mock else experts.all_views(
-        results, os.getenv("ANTHROPIC_API_KEY"), cfg.get("llm_model", "claude-haiku-5-5"), cfg.get("expert_days", 14))
+        results, os.getenv("ANTHROPIC_API_KEY"), cfg.get("expert_model") or cfg.get("llm_model", "claude-haiku-5-5"),
+        cfg.get("expert_days", 30))
 
     # 每檔今日操作傾向（Claude，一次打包；失敗退回規則）
     if args.mock:
@@ -150,7 +163,30 @@ def main() -> int:
     (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")
 
-    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, views, night)
+    # 判斷紀錄：週一先用「上週紀錄」算命中率，再寫入今天的判斷
+    hist_path = HISTORY_MOCK if args.mock else HISTORY
+    extra_lines = []
+    tpe_today = pd.Timestamp(dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date())
+    if args.weekly or tpe_today.weekday() == 0:
+        try:
+            hist = history.load(hist_path)
+            closes = {sid: f[0].set_index(f[0]["date"].dt.strftime("%Y-%m-%d"))["close"] for sid, f in frames.items()}
+            mser = mdf.set_index(mdf["date"].dt.strftime("%Y-%m-%d"))["close"] if mdf is not None else pd.Series(dtype=float)
+            line = history.last_week_line(hist, closes, mser, tpe_today)
+            if line:
+                extra_lines.append(line)
+        except Exception as e:
+            print(f"[warn] weekly hit rate: {e}", file=sys.stderr)
+    if args.only:
+        print("[info] --only 測試模式：不寫入判斷紀錄")
+    else:
+        try:
+            history.append(hist_path, results)
+            print(f"[ok] advice history → {hist_path}")
+        except Exception as e:
+            print(f"[warn] advice history: {e}", file=sys.stderr)
+
+    text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, views, night, extra_lines)
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:
