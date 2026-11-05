@@ -47,6 +47,22 @@ def inst_text(r: dict) -> str | None:
             f"投信 {amt_text(r['trust_amt'])}（{r['trust']:+,.0f} 張）")
 
 
+def _md(iso: str) -> str:
+    d = dt.date.fromisoformat(iso)
+    return f"{d.month}/{d.day}"
+
+
+def events_line(results: list[dict], market: dict | None) -> str | None:
+    """📅 未來 7 天：個股事件依日期排序，最後附月營收公布期限。"""
+    evs = sorted(((e["date"], r["name"], e["type"]) for r in results for e in r.get("events", [])))
+    parts = [f"{name} {_md(d)} {typ}" for d, name, typ in evs]
+    text = "；".join(parts)
+    note = (market or {}).get("revenue_note")
+    if note:
+        text = f"{text}｜{note}" if text else note
+    return f"📅 7 日內：{text}" if text else None
+
+
 def thermo_text(market: dict | None, fx: dict | None) -> str | None:
     """籌碼溫度計：融資增減（單日減少 200 億以上視為籌碼清洗）、外資台指期淨空／多單、台幣。"""
     parts = []
@@ -202,6 +218,9 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
     hl = tldr_lines(results, None, None, limit=2)
     if hl:
         lines.append("📌 今日重點：" + "；".join(hl))
+    cal = events_line(results, market)
+    if cal:
+        lines.append(cal)
     lines.append("")
 
     for r in sorted(results, key=_advice_sort_key):
@@ -278,6 +297,10 @@ def _detail_html(r: dict, views: list[dict]) -> str:
         parts.append("<ul class='facts'>" + "".join(f"<li>{html.escape(x)}</li>" for x in facts) + "</ul>")
     if r.get("signals"):
         parts.append("".join(f'<span class="tag {k}">{html.escape(t)}</span>' for k, t in r["signals"]))
+    if r.get("events"):
+        parts.append("<p>📅 " + "；".join(
+            f'{_md(e["date"])} {html.escape(e["type"])}' + (f' <a href="{html.escape(e["url"])}" target="_blank" rel="noopener">來源</a>'
+                                                          if e.get("url") else "") for e in r["events"]) + "</p>")
     d = r.get("digest")
     if d:
         parts.append(f'<p>📰 {TONE.get(d.get("tone"), "")} {html.escape(d["summary"])}</p>')

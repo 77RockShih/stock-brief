@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from src import advisor, analyze, checks, experts, extra, fetch, history, market as mkt, notify, overnight, report, summarize
+from src import advisor, analyze, checks, events, experts, extra, fetch, history, market as mkt, notify, overnight, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
@@ -174,6 +174,19 @@ def main() -> int:
     views = experts.mock_views(results) if args.mock else experts.all_views(
         results, os.getenv("ANTHROPIC_API_KEY"), cfg.get("expert_model") or cfg.get("llm_model", "claude-haiku-5-5"),
         cfg.get("expert_days", 30))
+
+    # 事件行事曆（未來 7 天）：除權息（TWSE）＋專家搜尋順便找到的法說會／股東會
+    tpe_date = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date()
+    try:
+        exdiv = events.mock_exdividend(tpe_date) if args.mock else events.fetch_exdividend({r["id"] for r in results}, tpe_date)
+    except Exception as e:
+        print(f"[warn] ex-dividend: {e}", file=sys.stderr)
+        exdiv = {}
+    cal = events.merge(exdiv, experts.EVENTS)
+    for r in results:
+        r["events"] = cal.get(r["id"], [])
+    if market is not None:
+        market["revenue_note"] = events.revenue_note(tpe_date)
 
     # 資料檢查：沒過的股票標「資料異常」，不交給 AI、不寫進紀錄
     hist_path = HISTORY_MOCK if args.mock else HISTORY

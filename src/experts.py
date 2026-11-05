@@ -28,6 +28,9 @@ PROMPT = """你是台股研究助理。今天是 {today}（台北時間）。
 - view 用繁體中文、50 字內，寫出理由（不只是結論）
 - 日期無法確定就填空字串；沒有目標價就填 null
 - 最多 3 則，挑最新、最具體的；真的找不到就回報空清單，不要編造
+
+另外，若搜尋結果中出現這檔股票在 {today}～{until}（未來 7 天內）的法說會、股東會或除權息日期，
+放進 events（type、date、url；url 必須是搜尋結果中的網址）。沒有就給空清單，不要為此額外推測日期。
 """
 
 TPE = dt.timezone(dt.timedelta(hours=8))
@@ -48,7 +51,16 @@ TOOL = {
                 "url": {"type": "string"},
             },
             "required": ["who", "stance", "target_price", "view", "date", "url"],
-        }}},
+        }},
+            "events": {"type": "array", "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["法說會", "股東會", "除權息", "其他"]},
+                    "date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "url": {"type": "string"},
+                },
+                "required": ["type", "date", "url"],
+            }}},
         "required": ["views"],
     },
 }
@@ -85,7 +97,24 @@ def _text(content: list) -> str:
 def build_prompt(sid: str, name: str, days: int, today: dt.date | None = None) -> str:
     today = today or dt.datetime.now(TPE).date()
     since = today - dt.timedelta(days=days)
-    return PROMPT.format(name=name, sid=sid, days=days, today=today.isoformat(), since=since.isoformat())
+    until = today + dt.timedelta(days=7)
+    return PROMPT.format(name=name, sid=sid, days=days, today=today.isoformat(), since=since.isoformat(),
+                         until=until.isoformat())
+
+
+EVENTS: dict[str, list[dict]] = {}  # stock_views 順便找到的未來 7 天事件（已驗證網址與日期）
+
+
+def _valid_events(evs: list[dict], seen: set[str], today: dt.date) -> list[dict]:
+    out = []
+    for e in evs or []:
+        try:
+            d = dt.date.fromisoformat(str(e.get("date", ""))[:10])
+        except ValueError:
+            continue
+        if today <= d <= today + dt.timedelta(days=7) and _norm(e.get("url", "")) in seen:
+            out.append({"type": e.get("type", "其他"), "date": d.isoformat(), "url": e["url"], "source": "web"})
+    return out
 
 
 def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 30) -> list[dict]:
@@ -105,6 +134,7 @@ def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 30) -
             # 只保留網址真的來自搜尋結果的看法（正規化後比對）
             seen = {_norm(u) for u in seen_urls if u}
             kept = [v for v in views if _norm(v.get("url", "")) in seen]
+            EVENTS[sid] = _valid_events(report["input"].get("events", []), seen, dt.datetime.now(TPE).date())
             dropped = len(views) - len(kept)
             if dropped:
                 print(f"[info] views {sid}: 回報 {len(views)} 則，{dropped} 則網址不在搜尋結果中已丟棄")
@@ -123,6 +153,7 @@ def stock_views(sid: str, name: str, api_key: str, model: str, days: int = 30) -
 
 
 def all_views(results: list[dict], api_key: str | None, model: str, days: int = 30) -> dict[str, list[dict]]:
+    EVENTS.clear()
     if not api_key:
         return {}
     out = {}
@@ -138,6 +169,9 @@ def all_views(results: list[dict], api_key: str | None, model: str, days: int = 
 
 
 def mock_views(results: list[dict]) -> dict[str, list[dict]]:
+    EVENTS.clear()
+    EVENTS["2395"] = [{"type": "法說會", "date": (dt.date.today() + dt.timedelta(days=2)).isoformat(),
+                       "url": "https://example.com/ir", "source": "web"}]
     d = (dt.date.today() - dt.timedelta(days=2)).isoformat()
     return {
         "3034": [{"who": "某投顧", "stance": "看多", "target_price": 620, "date": d, "url": "https://example.com/a",

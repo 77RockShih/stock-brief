@@ -129,6 +129,7 @@ def build_input(results: list[dict], frames: dict, views: dict, night: dict, mar
             "experts": [{"who": v["who"], "stance": v.get("stance"), "target_price": v.get("target_price"),
                          "target_vs_close_pct": _r((v["target_price"] / r["close"] - 1) * 100, 0) if v.get("target_price") else None,
                          "date": v.get("date")} for v in (views or {}).get(r["id"], [])],
+            "upcoming_events_7d": [f"{e['date']} {e['type']}" for e in r.get("events", [])],
             "related_us_overnight": [{"name": u["name"], "change_pct": _r(u["d1"])} for u in us if r["id"] in u.get("related", [])],
         })
     n = (night or {}).get("night") or {}
