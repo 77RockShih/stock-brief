@@ -69,6 +69,11 @@ def _r(v, n=2):
     return None if v is None or v != v else round(float(v), n)
 
 
+def _wan(e8):
+    """億元 → 萬元整數。"""
+    return None if e8 is None or e8 != e8 else int(round(float(e8) * 1e4))
+
+
 def build_input(results: list[dict], frames: dict, views: dict, night: dict, market: dict | None) -> dict:
     us = (night or {}).get("us", [])
     stocks = []
@@ -77,6 +82,7 @@ def build_input(results: list[dict], frames: dict, views: dict, night: dict, mar
         t = df.iloc[-1]
         rev = r.get("revenue") or {}
         d = r.get("digest") or {}
+        etf = r["id"].startswith("00")
         stocks.append({
             "id": r["id"], "name": r["name"],
             "close": _r(r["close"]), "change_pct": _r(r["change_pct"]),
@@ -85,10 +91,13 @@ def build_input(results: list[dict], frames: dict, views: dict, night: dict, mar
             "close_vs_ma20": "above" if t["close"] >= t["ma20"] else "below",
             "close_vs_ma60": "above" if t["close"] >= t["ma60"] else "below",
             "rsi": _r(r["rsi"], 0), "volume_ratio_vs_20d": _r(r["vol_ratio"], 1),
-            "foreign_net_e8": None if r["id"].startswith("00") else _r(r.get("foreign_amt")),
-            "foreign_streak_days": None if r["id"].startswith("00") else r.get("foreign_streak"),
-            "trust_net_e8": None if r["id"].startswith("00") else _r(r.get("trust_amt")),
-            "trust_streak_days": None if r["id"].startswith("00") else r.get("trust_streak"),
+            # 金額用萬元＋張數，避免小型股以「億」四捨五入成 0 被誤判
+            "foreign_net_lots": None if etf else _r(r.get("foreign"), 0),
+            "foreign_net_wan": None if etf else _wan(r.get("foreign_amt")),
+            "foreign_streak_days": None if etf else r.get("foreign_streak"),
+            "trust_net_lots": None if etf else _r(r.get("trust"), 0),
+            "trust_net_wan": None if etf else _wan(r.get("trust_amt")),
+            "trust_streak_days": None if etf else r.get("trust_streak"),
             "revenue_yoy_pct": _r(rev.get("yoy"), 1), "revenue_mom_pct": _r(rev.get("mom"), 1),
             "technical_signals": [text for _, text in r.get("signals", [])],
             "news": {"tone": d.get("tone"), "summary": d.get("summary")} if d else None,
@@ -101,7 +110,7 @@ def build_input(results: list[dict], frames: dict, views: dict, night: dict, mar
     fx = (night or {}).get("fx") or {}
     ctx = {
         "taiex_change_pct": _r((market or {}).get("d1")), "taiex_20d_pct": _r((market or {}).get("d20")),
-        "market_foreign_net_e8": _r(((market or {}).get("inst") or {}).get("foreign"), 0),
+        "market_foreign_net_e8": _r(((market or {}).get("inst") or {}).get("foreign"), 0),  # 全市場，單位億元
         "night_futures_change_pct": _r(n.get("pct")) if n and not n.get("stale") else None,
         "usd_twd_change_pct": _r(fx.get("d1")),
     }

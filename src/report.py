@@ -28,9 +28,13 @@ def _rev_text(rev: dict | None) -> str | None:
 
 
 def amt_text(v: float) -> str:
-    """億元金額，依大小調整小數位。"""
+    """金額（輸入單位：億元）。未滿 1 億改用萬元，避免小型股四捨五入成 0。"""
     a = abs(v)
-    return f"{v:+,.0f} 億" if a >= 10 else f"{v:+.1f} 億" if a >= 1 else f"{v:+.2f} 億"
+    if a >= 10:
+        return f"{v:+,.0f} 億"
+    if a >= 1:
+        return f"{v:+.1f} 億"
+    return f"{v * 1e4:+,.0f} 萬"
 
 
 def inst_text(r: dict) -> str | None:
