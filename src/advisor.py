@@ -55,16 +55,38 @@ TOOL = {
 
 
 # ---------- 觀察價位（程式計算，不交給 LLM） ----------
+def atr(df: pd.DataFrame, n: int = 14) -> float:
+    """ATR14（Wilder）。"""
+    prev = df["close"].shift(1)
+    tr = pd.concat([df["high"] - df["low"], (df["high"] - prev).abs(), (df["low"] - prev).abs()], axis=1).max(axis=1)
+    return float(tr.ewm(alpha=1 / n, adjust=False).mean().iloc[-1])
+
+
+def _swing_lows(df: pd.DataFrame, lookback: int = 60, k: int = 2) -> list[float]:
+    """近 lookback 日內的波段低點：低點是前後各 k 根 K 棒中最低者。"""
+    lows = df["low"].iloc[-lookback:].reset_index(drop=True)
+    return [float(lows[i]) for i in range(k, len(lows) - k) if lows[i] == lows[i - k:i + k + 1].min()]
+
+
 def levels(df: pd.DataFrame) -> dict:
-    """支撐 = MA20 與近 20 日低點中，位於現價下方且較接近現價者；壓力 = 近 60 日高點（已創高則為「創高中」）。"""
+    """支撐 = MA20 與近 20 日低點中，位於現價下方且較接近現價者；壓力 = 近 60 日高點（已創高則為「創高中」）。
+    防呆：支撐 ≥ 收盤 × 0.99（例如當天就是 20 日低點、跌停收最低）時，支撐等於沒有參考價值，
+    改用「收盤 − 1.5 × ATR14」與「更早的波段低點（低於收盤 1% 以上）」中較接近現價者。"""
     t = df.iloc[-1]
     close = float(t["close"])
     low20 = float(df["low"].iloc[-20:].min())
     high60 = float(df["high"].iloc[-60:].max())
     cands = [v for v in (float(t["ma20"]), low20) if v == v and v <= close]  # v == v 排除 NaN
-    support = max(cands) if cands else low20
+    support, method = (max(cands) if cands else low20), "ma20/low20"
+    if support >= close * 0.99:
+        floor = close * 0.99
+        alts = [close - 1.5 * atr(df)] + [v for v in _swing_lows(df) if v < floor]
+        alts = [v for v in alts if 0 < v < floor]
+        if alts:
+            support, method = max(alts), "atr/swing"
     new_high = close >= float(df["close"].iloc[-60:].max())
-    return {"support": support, "resistance": None if new_high else high60, "new_high": new_high}
+    return {"support": support, "resistance": None if new_high else high60, "new_high": new_high,
+            "support_method": method}
 
 
 # ---------- 輸入整理 ----------
