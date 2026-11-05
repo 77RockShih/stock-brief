@@ -8,12 +8,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-ICON = {"bull": "🔴", "bear": "🟢", "info": "🟡"}  # 台股慣例：紅＝偏多、綠＝偏空
+ICON = {"bull": "🔺", "bear": "🔻", "info": "🔸"}  # 用箭頭不用紅綠燈：家人看到綠燈容易以為是好事
 UP, DOWN = "#d9363e", "#1a9850"  # 台股慣例：紅漲綠跌
 
 
-TONE = {"偏多": "🔴", "偏空": "🟢", "中性": "⚪"}
-STANCE = {"看多": "🔴", "看空": "🟢", "中性": "⚪"}
+TONE = {"偏多": "🔺", "偏空": "🔻", "中性": "⚪"}
+STANCE = {"看多": "🔺", "看空": "🔻", "中性": "⚪"}
 
 
 def _pct(v: float | None) -> str:
@@ -170,7 +170,7 @@ def _rel_line(r: dict) -> str | None:
     return f"　📐 相對大盤：今日 {r['rel1']:+.1f}%・20 日 {r['rel20']:+.1f}%"
 
 
-STANCE_ICON = {"偏多": "🔴", "觀望": "⚪", "偏空": "🟢", "資料異常": "⚠️"}
+STANCE_ICON = {"偏多": "🔺", "觀望": "⚪", "偏空": "🔻", "資料異常": "⚠️"}
 STANCE_ORDER = {"偏多": 0, "觀望": 1, "偏空": 2, "資料異常": 3}
 CONF_ORDER = {"高": 0, "中": 1, "低": 2}
 SHORT_NAME = {"^SOX": "費半", "TSM": "TSM ADR"}  # LINE 夜盤那行要顯示的美股（依 config 順序）
@@ -317,7 +317,7 @@ def _detail_html(r: dict, views: list[dict]) -> str:
         if v.get("target_price"):
             tp = f"｜目標價 {v['target_price']:,.0f}（距現價 {(v['target_price'] / r['close'] - 1) * 100:+.0f}%）"
         date = f"（{v['date']}{_stale_mark(v['date'])}）" if v.get("date") else ""
-        icon = STANCE.get(v.get("stance"), "🔴" if "多" in str(v.get("stance")) else "🟢" if "空" in str(v.get("stance")) else "⚪")
+        icon = STANCE.get(v.get("stance"), "🔺" if "多" in str(v.get("stance")) else "🔻" if "空" in str(v.get("stance")) else "⚪")
         parts.append(f'<p>👤 {icon} <b>{html.escape(v["who"])}</b>{tp}{date}<br>{html.escape(v["view"])} '
                      f'<a href="{html.escape(v["url"])}" target="_blank" rel="noopener">來源</a></p>')
     return '<div class="detail">' + "".join(parts) + "</div>"
