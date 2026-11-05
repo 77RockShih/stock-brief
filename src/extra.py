@@ -40,6 +40,22 @@ def fetch_news(stock_id: str, days: int, token: str | None) -> list[dict]:
     return df[["date", "source", "title", "link"]].head(15).to_dict("records")
 
 
+def filter_news(items: list[dict], price_date: dt.date, trading_dates: list[dt.date]) -> list[dict]:
+    """只保留「股價資料日 D 的前一個交易日收盤（13:30）之後」發布的新聞，並附上發布時間字串。
+    FinMind 的 date 通常含時分秒；只有日期時無法判斷盤前盤後，保留同日或之後的。"""
+    prev = max([d for d in trading_dates if d < price_date], default=price_date - dt.timedelta(days=1))
+    cutoff = pd.Timestamp(dt.datetime.combine(prev, dt.time(13, 30)))
+    out = []
+    for n in items:
+        t = pd.to_datetime(str(n.get("date", "")), errors="coerce")
+        if pd.isna(t):
+            continue
+        has_time = (t.hour, t.minute, t.second) != (0, 0, 0)
+        if (has_time and t > cutoff) or (not has_time and t.date() >= prev + dt.timedelta(days=1)):
+            out.append({**n, "published": t.strftime("%m/%d %H:%M") if has_time else t.strftime("%m/%d")})
+    return out
+
+
 # ---------- 原物料 ----------
 def fetch_commodity(symbol: str) -> pd.DataFrame:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -82,12 +98,17 @@ def mock_revenue(stock_id: str) -> pd.DataFrame:
 
 
 def mock_news(stock_id: str, name: str) -> list[dict]:
+    """含發布時間；最後一則是兩天前的舊新聞，用來測試日期過濾。"""
     rng = np.random.default_rng(zlib.crc32(stock_id.encode()) + 9)
     pool = [f"{name}法說會釋出展望，第四季營運看法曝光", f"外資調整{name}目標價",
-            f"{name}9月營收出爐", f"{name}新產品線進度更新", f"{name}股價強勢，成交量放大"]
+            f"{name}9月營收出爐", f"{name}新產品線進度更新"]
     n = int(rng.integers(0, 4))
-    d = (dt.date.today() - dt.timedelta(days=1)).isoformat()
-    return [{"date": d, "source": "mock", "title": t, "link": "https://example.com"} for t in pool[:n]]
+    last = pd.bdate_range(end=dt.date.today() - dt.timedelta(days=1), periods=3)
+    items = [{"date": f"{last[-1].date()} 1{i}:2{i}:00", "source": "mock", "title": t, "link": "https://example.com"}
+             for i, t in enumerate(pool[:n])]
+    items.append({"date": f"{last[-3].date()} 14:05:00", "source": "mock", "title": f"{name}跌停（兩天前的舊新聞）",
+                  "link": "https://example.com"})
+    return items
 
 
 def mock_commodity(symbol: str) -> pd.DataFrame:

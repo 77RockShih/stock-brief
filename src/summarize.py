@@ -7,10 +7,15 @@ import re
 
 from .claude_api import call_tool
 
-PROMPT = """你是台股研究助理。以下是投資人持股的最新新聞標題（只有標題，沒有內文）。
+PROMPT = """你是台股研究助理。以下是投資人追蹤股票的新聞標題（只有標題與發布時間，沒有內文），
+以及每檔股票「股價資料日」的收盤價與漲跌幅。
 請為「有新聞」的每一檔股票寫一則重點，並呼叫 report_news 工具回報。規則：
 - 用繁體中文，每檔最多 2 句、60 字內
 - 只根據標題內容，不要編造標題裡沒有的數字或事實
+- 時間判讀：發布時間早於股價資料日 09:00 開盤的新聞，描述的是之前已經發生的事件，
+  不可以當成股價資料日當天的走勢。例：股價資料日 11/04，11/03 的「跌停」新聞是 11/03 的事。
+- 新聞描述的漲跌和股價資料不一致時，以股價資料為準，把該新聞視為過去事件；
+  不要寫「資料矛盾」「數據有誤」之類的字眼
 - 判斷新聞對股價的傾向：偏多、偏空或中性
 - 標題彼此重複或無實質內容（例如單純股價漲跌描述）就合併或略過
 
@@ -61,15 +66,26 @@ def _dedupe(titles: list[str]) -> list[str]:
 
 
 def summarize_news(news: dict[str, dict], api_key: str | None, model: str) -> dict[str, dict]:
-    """news: {stock_id: {"name": ..., "items": [{title, ...}]}} → {stock_id: {tone, summary}}"""
-    payload = {sid: {"name": v["name"], "titles": _dedupe([n["title"] for n in v["items"]])}
-               for sid, v in news.items() if v["items"]}
-    payload = {k: v for k, v in payload.items() if v["titles"]}
+    """news: {stock_id: {"name", "price_date", "close", "change_pct", "items": [{title, published}]}}
+    → {stock_id: {tone, summary}}"""
+    payload = {}
+    for sid, v in news.items():
+        seen, rows = set(), []
+        for n in v["items"]:
+            t = clean_title(n["title"])
+            key = re.sub(r"\W", "", t)[:20]
+            if key and key not in seen:
+                seen.add(key)
+                rows.append({"published": n.get("published", ""), "title": t})
+        if rows:
+            payload[sid] = {"name": v["name"], "price_date": v.get("price_date"), "close": v.get("close"),
+                            "change_pct": v.get("change_pct"), "news": rows}
     if not payload:
         return {}
     if not api_key:
         # 沒有 API key 或 API 失敗：退回成直接列前兩則（已清理）標題
-        return {sid: {"tone": "", "summary": "；".join(v["titles"][:2])} for sid, v in payload.items()}
+        return {sid: {"tone": "", "summary": "；".join(f"{n['published']} {n['title']}" for n in v["news"][:2])}
+                for sid, v in payload.items()}
 
     data = call_tool(api_key, model, PROMPT + json.dumps(payload, ensure_ascii=False), TOOL,
                      max_tokens=2000, timeout=60, label="summarize")

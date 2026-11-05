@@ -133,7 +133,12 @@ def main() -> int:
             print(f"[fail] commodity {c['symbol']}: {e}", file=sys.stderr)
 
     # 新聞摘要（Claude API）
-    news_in = {r["id"]: {"name": r["name"], "items": r["news"]} for r in results}
+    news_in = {r["id"]: {"name": r["name"], "price_date": r["date"], "close": round(r["close"], 2),
+                         "change_pct": round(r["change_pct"], 2),
+                         "items": extra.filter_news(r["news"], dt.date.fromisoformat(r["date"]), trading_dates)}
+               for r in results}
+    for r in results:  # Dashboard 也只列過濾後的新聞
+        r["news"] = news_in[r["id"]]["items"]
     try:
         digest = summarize.summarize_news(
             news_in, os.getenv("ANTHROPIC_API_KEY"), cfg.get("llm_model", "claude-haiku-5-5"))
