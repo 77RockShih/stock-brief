@@ -138,6 +138,9 @@ def build_input(results: list[dict], frames: dict, views: dict, night: dict, mar
         "market_foreign_net_e8": _r(((market or {}).get("inst") or {}).get("foreign"), 0),  # 全市場，單位億元
         "night_futures_change_pct": _r(n.get("pct")) if n and not n.get("stale") else None,
         "usd_twd_change_pct": _r(fx.get("d1")),
+        "listed_margin_change_e8": _r(((market or {}).get("margin") or {}).get("change_e8"), 0),  # 上市融資餘額增減（億）
+        "foreign_tx_net_oi": _r(((market or {}).get("futures") or {}).get("net"), 0),          # 外資台指期淨未平倉（口，負=淨空）
+        "foreign_tx_net_oi_change": _r(((market or {}).get("futures") or {}).get("change"), 0),
     }
     return {"market": ctx, "stocks": stocks}
 

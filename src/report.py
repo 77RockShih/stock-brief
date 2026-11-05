@@ -47,6 +47,30 @@ def inst_text(r: dict) -> str | None:
             f"投信 {amt_text(r['trust_amt'])}（{r['trust']:+,.0f} 張）")
 
 
+def thermo_text(market: dict | None, fx: dict | None) -> str | None:
+    """籌碼溫度計：融資增減（單日減少 200 億以上視為籌碼清洗）、外資台指期淨空／多單、台幣。"""
+    parts = []
+    m = (market or {}).get("margin")
+    if m and m.get("change_e8") is not None:
+        c = m["change_e8"]
+        parts.append(f"融資 {c:+,.0f} 億" + ("（籌碼清洗）" if c <= -200 else ""))
+    f = (market or {}).get("futures")
+    if f and f.get("net") is not None:
+        side = "空" if f["net"] < 0 else "多"
+        s = f"外資台指期淨{side} {abs(f['net']):,.0f} 口"
+        if f.get("change") is not None:
+            prev = f["net"] - f["change"]
+            grow = abs(f["net"]) - abs(prev) if (prev < 0) == (f["net"] < 0) else None
+            if grow is not None and grow != 0:
+                s += f"（{side}單{'增' if grow > 0 else '減'} {abs(grow):,.0f}）"
+            elif grow is None:
+                s += "（翻轉）"
+        parts.append(s)
+    if fx:
+        parts.append(fx_text(fx))
+    return "🌡 籌碼：" + "｜".join(parts) if parts else None
+
+
 def fx_text(fx: dict) -> str:
     """USD/TWD 上升 = 台幣貶值；用「台幣升／貶」表達比 ± 直觀。"""
     d = fx["d1"]
@@ -63,7 +87,7 @@ def night_text(n: dict, short: bool = False) -> str:
         label += "（進行中）"
     pct = f"{n['pct']:+.1f}%" if n.get("pct") is not None else ""
     if short:
-        s = f"{label} {pct}"
+        s = f"{label} {n['last']:,.0f} {pct}"
     else:
         chg = f"{n['change']:+,.0f}" if n.get("change") is not None else ""
         s = f"🌃 台指期{label} {n['last']:,.0f}｜{chg}（{pct}）vs 前日一般時段結算"
@@ -125,7 +149,7 @@ def _rel_line(r: dict) -> str | None:
 STANCE_ICON = {"偏多": "🔴", "觀望": "⚪", "偏空": "🟢", "資料異常": "⚠️"}
 STANCE_ORDER = {"偏多": 0, "觀望": 1, "偏空": 2, "資料異常": 3}
 CONF_ORDER = {"高": 0, "中": 1, "低": 2}
-SHORT_NAME = {"^SOX": "費半"}
+SHORT_NAME = {"^SOX": "費半", "TSM": "TSM ADR"}  # LINE 夜盤那行要顯示的美股（依 config 順序）
 
 
 def px(v: float | None) -> str:
@@ -158,10 +182,10 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
         pre.append(night_text(n, short=True))
     for u in (night or {}).get("us", []):
         if u["symbol"] in SHORT_NAME:
-            pre.append(f"{SHORT_NAME[u['symbol']]} {_pct(u['d1'])}")
-    fx = (night or {}).get("fx")
-    if fx:
-        pre.append(fx_text(fx))
+            s = f"{SHORT_NAME[u['symbol']]} {_pct(u['d1'])}"
+            if u.get("premium") is not None:
+                s += f"（溢價 {u['premium']:+.0f}%）"
+            pre.append(s)
     if pre:
         lines.append("🌃 " + "｜".join(pre))
 
@@ -171,6 +195,9 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
         if mi:
             m += f"｜外資{'買超' if mi['foreign'] >= 0 else '賣超'} {abs(mi['foreign']):,.0f} 億"
         lines.append(m)
+    th = thermo_text(market, (night or {}).get("fx"))
+    if th:
+        lines.append(th)
 
     hl = tldr_lines(results, None, None, limit=2)
     if hl:

@@ -117,6 +117,16 @@ def main() -> int:
             market["inst"] = tinst
     except Exception as e:  # 抓不到就略過，不影響主流程
         print(f"[warn] total institutional: {e}", file=sys.stderr)
+    # 籌碼溫度計：上市融資餘額增減、外資台指期淨未平倉（抓不到就略過）
+    since = (dt.date.today() - dt.timedelta(days=10)).isoformat()
+    for key, real, fake in (("margin", mkt.fetch_margin_total, mkt.mock_margin_total),
+                            ("futures", mkt.fetch_futures_foreign, mkt.mock_futures_foreign)):
+        try:
+            v = fake() if args.mock else real(since, token)
+            if market is not None and v:
+                market[key] = v
+        except Exception as e:
+            print(f"[warn] {key}: {e}", file=sys.stderr)
     for r in results:
         r["rel1"] = r["change_pct"] - market["d1"] if market else None
         r["rel20"] = r["ret20"] - market["d20"] if market else None
