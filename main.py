@@ -214,8 +214,18 @@ def main() -> int:
         r["advice"] = advice.get(r["id"]) or {"stance": "資料異常", "confidence": "", "source": "check",
                                              "issues": issues.get(r["id"], [])}
 
+    # AI 判斷追蹤（Dashboard）：用「今天以前」的紀錄，回頭比對隔 1 日、5 日的相對大盤報酬
+    track = None
+    try:
+        if hist_all is not None and mdf is not None:
+            closes = {sid: f[0].set_index(f[0]["date"].dt.strftime("%Y-%m-%d"))["close"] for sid, f in frames.items()}
+            mser = mdf.set_index(mdf["date"].dt.strftime("%Y-%m-%d"))["close"]
+            track = history.track_table(hist_all, closes, mser)
+    except Exception as e:
+        print(f"[warn] track table: {e}", file=sys.stderr)
+
     OUT.mkdir(exist_ok=True)
-    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities, market, views, night), encoding="utf-8")
+    (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities, market, views, night, track), encoding="utf-8")
     (OUT / "manifest.json").write_text(report.MANIFEST, encoding="utf-8")
     (OUT / "data.json").write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"[ok] dashboard → {OUT / 'index.html'}")

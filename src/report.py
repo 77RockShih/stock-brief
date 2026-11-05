@@ -324,7 +324,8 @@ def _detail_html(r: dict, views: list[dict]) -> str:
 
 
 def dashboard_html(results: list[dict], frames: dict, chart_days: int, commodities: list[dict] | None = None,
-                   market: dict | None = None, views: dict | None = None, night: dict | None = None) -> str:
+                   market: dict | None = None, views: dict | None = None, night: dict | None = None,
+                   track: dict | None = None) -> str:
     date = results[0]["date"] if results else ""
     rows, charts = [], []
     for r in sorted(results, key=_advice_sort_key):
@@ -366,6 +367,26 @@ def dashboard_html(results: list[dict], frames: dict, chart_days: int, commoditi
         if night.get("night"):
             items.append(html.escape(night_text(night["night"])))
         pre = '<h2>盤前</h2><div class="card"><ul class="facts">' + "".join(f"<li>{x}</li>" for x in items) + "</ul></div>"
+    tr = ""
+    def avg_text(v):
+        return "—" if v is None else f"{v:+.2f}%"
+    if track and track.get("rows"):
+        def cell(row, k):
+            if row["stance"] == "觀望" or not row[f"n{k}"]:
+                return '<td class="num muted">—</td>'
+            return f'<td class="num">{row[f"hit{k}"]}/{row[f"n{k}"]}<div class="muted">{row[f"hit{k}"] / row[f"n{k}"] * 100:.0f}%</div></td>'
+        body = "".join(
+            f'<tr><td class="nw">{STANCE_ICON.get(row["stance"], "")} {row["stance"]}</td><td class="num">{row["n"]}</td>'
+            + cell(row, 1) + cell(row, 5)
+            + f'<td class="num">{avg_text(row["avg5"])}</td></tr>'
+            for row in track["rows"])
+        p0, p1 = track["period"]
+        conf = "、".join(f"{k} {v}" for k, v in sorted(track["conf"].items(), key=lambda x: -x[1]))
+        tr = ('<h2>AI 判斷追蹤</h2><div class="card"><table><thead><tr><th>傾向</th><th class="num">筆數</th>'
+              '<th class="num">隔日命中</th><th class="num">5 日命中</th><th class="num">5 日平均<br>相對大盤</th></tr></thead>'
+              f'<tbody>{body}</tbody></table><div class="muted" style="padding:6px 10px">{p0}～{p1}，共 {track["days"]} 個交易日。'
+              '命中＝偏多時相對大盤上漲、偏空時相對大盤下跌；觀望不計命中。'
+              f'信心分布：{html.escape(conf)}。樣本少於 30 筆時參考價值有限。</div></div>')
     mk = ""
     if market:
         mk = (f'<div class="muted">加權指數 {market["close"]:,.0f}｜今日 '
@@ -427,6 +448,7 @@ h3 {{ font-size:17px; margin:10px 12px 4px }}
 <thead><tr><th>股票</th><th>今日傾向</th><th class="num">收盤</th><th class="num">漲跌</th><th class="num">RSI</th><th class="num">外資</th><th class="num">相對大盤20日</th><th class="num">營收YoY</th><th>訊號</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
 {comm}
+{tr}
 {''.join(charts)}
 <footer>AI 判斷、技術指標與專家看法僅供參考，非投資建議。資料來源：FinMind、Yahoo Finance。</footer>
 </main></body></html>"""

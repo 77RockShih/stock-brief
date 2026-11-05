@@ -112,3 +112,29 @@ def last_week_line(hist: pd.DataFrame, closes: dict[str, pd.Series], market: pd.
     hc = hit_counts(forward_returns(week, closes, market, horizons=(1,)), "rel_1d")
     parts = [f"{st} {h}/{n}" for st, (h, n) in hc.items() if n]
     return "📊 上週 AI 判斷命中率（隔日相對大盤）：" + "、".join(parts) if parts else None
+
+
+def track_table(hist: pd.DataFrame, closes: dict[str, pd.Series], market: pd.Series) -> dict:
+    """Dashboard「AI 判斷追蹤」：各 stance 的筆數、隔日／5 日命中率與 5 日平均相對報酬，及信心分布。只算 AI 判斷。"""
+    h = hist[hist["source"] == "ai"] if not hist.empty else hist
+    if h.empty:
+        return {"rows": [], "period": None, "days": 0, "conf": {}}
+    fr = forward_returns(h, closes, market, horizons=(1, 5))
+    rows = []
+    for st in ("偏多", "觀望", "偏空"):
+        g = fr[fr["stance"] == st]
+        row = {"stance": st, "n": len(g)}
+        for k in (1, 5):
+            v = g[f"rel_{k}d"].dropna()
+            row[f"n{k}"] = len(v)
+            row[f"avg{k}"] = round(float(v.mean()), 2) if len(v) else None
+            if st == "偏多":
+                row[f"hit{k}"] = int((v > 0).sum())
+            elif st == "偏空":
+                row[f"hit{k}"] = int((v < 0).sum())
+            else:
+                row[f"hit{k}"] = None
+        rows.append(row)
+    conf = h.groupby(["stance", "confidence"]).size().to_dict()
+    return {"rows": rows, "period": (h["date"].min(), h["date"].max()), "days": int(h["date"].nunique()),
+            "conf": {f"{a}・{b}": int(c) for (a, b), c in conf.items()}}
