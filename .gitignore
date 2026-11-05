@@ -4,3 +4,4 @@ __pycache__/
 .env
 site/
 data/*.mock.csv
+data/intraday_sent.txt

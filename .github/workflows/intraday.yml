@@ -1,0 +1,40 @@
+name: Intraday Support Alert
+
+on:
+  schedule:
+    - cron: '27 2 * * 1-5'   # 台北 10:27
+    - cron: '27 4 * * 1-5'   # 台北 12:27（GitHub 排程常延遲；程式會檢查是否還在盤中）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Show trigger timing
+        run: echo "event=${{ github.event_name }} schedule='${{ github.event.schedule }}' started=$(TZ=Asia/Taipei date '+%F %T') Taipei"
+      - name: Restore today's sent list
+        uses: actions/cache/restore@v5
+        with:
+          path: data/intraday_sent.txt
+          key: intraday-${{ github.run_id }}
+          restore-keys: intraday-
+      - name: Check support
+        run: python tools/intraday.py
+        env:
+          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          LINE_OWNER_ID: ${{ secrets.LINE_OWNER_ID }}
+      - name: Save sent list
+        if: ${{ hashFiles('data/intraday_sent.txt') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: data/intraday_sent.txt
+          key: intraday-${{ github.run_id }}
