@@ -122,8 +122,8 @@ def _rel_line(r: dict) -> str | None:
     return f"　📐 相對大盤：今日 {r['rel1']:+.1f}%・20 日 {r['rel20']:+.1f}%"
 
 
-STANCE_ICON = {"偏多": "🔴", "觀望": "⚪", "偏空": "🟢"}
-STANCE_ORDER = {"偏多": 0, "觀望": 1, "偏空": 2}
+STANCE_ICON = {"偏多": "🔴", "觀望": "⚪", "偏空": "🟢", "資料異常": "⚠️"}
+STANCE_ORDER = {"偏多": 0, "觀望": 1, "偏空": 2, "資料異常": 3}
 CONF_ORDER = {"高": 0, "中": 1, "低": 2}
 SHORT_NAME = {"^SOX": "費半"}
 
@@ -180,6 +180,9 @@ def message_text(results: list[dict], dashboard_url: str | None, commodities: li
     for r in sorted(results, key=_advice_sort_key):
         a = r.get("advice") or {}
         arrow = "▲" if r["change_pct"] >= 0 else "▼"
+        if a.get("stance") == "資料異常":  # 細節只放 log 與 Dashboard，推給家人的內容只說「資料異常」
+            lines.append(f"⚠️ {r['name']} {px(r['close'])} {arrow}{abs(r['change_pct']):.1f}%｜資料異常，今日不判斷")
+            continue
         tag = f"{a.get('stance', '觀望')}・{a.get('confidence', '低')}" + ("（規則判斷）" if a.get("source") == "rule" else "")
         lines.append(f"{STANCE_ICON.get(a.get('stance'), '⚪')} {r['name']} {px(r['close'])} {arrow}{abs(r['change_pct']):.1f}%｜{tag}")
         if a.get("reason"):
@@ -234,6 +237,9 @@ def _detail_html(r: dict, views: list[dict]) -> str:
     """每檔卡片最上方：操作傾向、價位，接著是原本放在 LINE 的細節。"""
     a = r.get("advice") or {}
     st = a.get("stance", "觀望")
+    if st == "資料異常":
+        return ('<div class="detail"><div class="advice"><b>⚠️ 資料異常，今日不判斷</b><ul class="facts">'
+                + "".join(f"<li>{html.escape(x)}</li>" for x in a.get("issues", [])) + "</ul></div></div>")
     cls = {"偏多": "bull", "偏空": "bear"}.get(st, "neutral")
     src = "（規則判斷）" if a.get("source") == "rule" else "（AI）"
     parts = [f'<div class="advice {cls}"><b>{STANCE_ICON.get(st, "⚪")} {st}・{a.get("confidence", "低")}</b>'

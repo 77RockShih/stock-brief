@@ -91,4 +91,10 @@ def summarize_news(news: dict[str, dict], api_key: str | None, model: str) -> di
                      max_tokens=2000, timeout=60, label="summarize")
     if data is None:
         raise RuntimeError("no tool_use in response")
-    return {str(i["id"]): {"tone": i.get("tone", ""), "summary": i["summary"]} for i in data.get("items", [])}
+    out = {}
+    for i in data.get("items", []):
+        if any(w in i.get("summary", "") for w in ("矛盾", "資料有誤", "數據有誤")):
+            print(f"[warn] summarize {i.get('id')}: 摘要提到資料矛盾，略過這則")
+            continue
+        out[str(i["id"])] = {"tone": i.get("tone", ""), "summary": i["summary"]}
+    return out

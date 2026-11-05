@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from src import advisor, analyze, experts, extra, fetch, history, market as mkt, notify, overnight, report, summarize
+from src import advisor, analyze, checks, experts, extra, fetch, history, market as mkt, notify, overnight, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
@@ -153,14 +153,29 @@ def main() -> int:
         results, os.getenv("ANTHROPIC_API_KEY"), cfg.get("expert_model") or cfg.get("llm_model", "claude-haiku-5-5"),
         cfg.get("expert_days", 30))
 
+    # 資料檢查：沒過的股票標「資料異常」，不交給 AI、不寫進紀錄
+    hist_path = HISTORY_MOCK if args.mock else HISTORY
+    try:
+        hist_all = history.load(hist_path)
+    except Exception as e:
+        print(f"[warn] load history: {e}", file=sys.stderr)
+        hist_all = None
+    market_last = trading_dates[-1] if trading_dates else None
+    issues = checks.run(results, frames, hist_all, market_last)
+    market_note = checks.market_issue(market_last, dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date())
+    if market_note:
+        print(f"[check] market: {market_note}")
+    clean = [r for r in results if r["id"] not in issues]
+
     # 每檔今日操作傾向（Claude，一次打包；失敗退回規則）
     if args.mock:
-        advice = advisor.mock_advise(results, frames)
+        advice = advisor.mock_advise(clean, frames)
     else:
-        advice = advisor.advise(results, frames, views, night, market, os.getenv("ANTHROPIC_API_KEY"),
-                                cfg.get("advisor_model", "claude-opus-5-5"))
+        advice = advisor.advise(clean, frames, views, night, market, os.getenv("ANTHROPIC_API_KEY"),
+                                cfg.get("advisor_model", "claude-opus-5-5")) if clean else {}
     for r in results:
-        r["advice"] = advice.get(r["id"])
+        r["advice"] = advice.get(r["id"]) or {"stance": "資料異常", "confidence": "", "source": "check",
+                                             "issues": issues.get(r["id"], [])}
 
     OUT.mkdir(exist_ok=True)
     (OUT / "index.html").write_text(report.dashboard_html(results, frames, cfg["chart_days"], commodities, market, views, night), encoding="utf-8")
@@ -169,7 +184,6 @@ def main() -> int:
     print(f"[ok] dashboard → {OUT / 'index.html'}")
 
     # 判斷紀錄：週一先用「上週紀錄」算命中率，再寫入今天的判斷
-    hist_path = HISTORY_MOCK if args.mock else HISTORY
     extra_lines = []
     tpe_today = pd.Timestamp(dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date())
     if args.weekly or tpe_today.weekday() == 0:
@@ -186,11 +200,13 @@ def main() -> int:
         print("[info] --only 測試模式：不寫入判斷紀錄")
     else:
         try:
-            history.append(hist_path, results)
+            history.append(hist_path, [r for r in results if r["id"] not in issues])
             print(f"[ok] advice history → {hist_path}")
         except Exception as e:
             print(f"[warn] advice history: {e}", file=sys.stderr)
 
+    if market_note:
+        extra_lines.insert(0, "⚠️ 大盤資料可能尚未更新，今日判斷僅供參考")
     text = report.message_text(results, os.getenv("DASHBOARD_URL"), commodities, market, views, night, extra_lines)
     if failed:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
