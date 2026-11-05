@@ -51,6 +51,8 @@ jobs:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HOLDINGS: ${{ secrets.HOLDINGS }}            # 私訊版（選填）
+          LINE_OWNER_ID: ${{ secrets.LINE_OWNER_ID }}  # 私訊版收件人：只有你
           DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
           ONLY: ${{ inputs.only }}
           SKIP_IF_SENT: ${{ github.event_name == 'schedule' || inputs.skip_if_sent == 'true' }}

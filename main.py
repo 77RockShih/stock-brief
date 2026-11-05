@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from src import advisor, analyze, checks, events, experts, extra, fetch, history, market as mkt, notify, overnight, report, summarize
+from src import advisor, analyze, checks, events, experts, extra, fetch, history, market as mkt, notify, overnight, private, report, summarize
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site"
@@ -262,6 +262,21 @@ def main() -> int:
         if not args.mock and not args.only and os.getenv("LINE_TOKEN"):
             SENT_MARKER.parent.mkdir(parents=True, exist_ok=True)
             SENT_MARKER.write_text(results[0]["date"] + "\n")
+
+    # 持有人私訊版：只 push 給 LINE_OWNER_ID，失敗不影響群發
+    try:
+        hold = private.parse_holdings(private.MOCK_HOLDINGS if args.mock else os.getenv("HOLDINGS"))
+        ptext = private.owner_text(results, hold)
+        if ptext and not args.only:
+            owner = os.getenv("LINE_OWNER_ID")
+            if owner and ("broadcast" in owner or "," in owner):
+                print("[warn] LINE_OWNER_ID 只能是你自己一個人的 user ID，私訊版不送出", file=sys.stderr)
+            elif args.no_notify or args.mock or not owner:
+                print("[private] 未推送（--mock／--no-notify 或沒設 LINE_OWNER_ID）：\n" + ptext)
+            else:
+                notify.send_line(ptext, os.getenv("LINE_TOKEN"), owner)
+    except Exception as e:
+        print(f"[warn] private: {e}", file=sys.stderr)
     return 0
 
 
