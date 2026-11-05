@@ -22,6 +22,7 @@ ROOT = Path(__file__).parent
 OUT = ROOT / "site"
 HISTORY = ROOT / "data" / "advice_history.csv"            # 正式紀錄（commit 進 repo）
 HISTORY_MOCK = ROOT / "data" / "advice_history.mock.csv"  # --mock 用，不進 repo
+SENT_MARKER = ROOT / "data" / "last_sent.txt"             # 最後一次成功推播的資料日（避免重複推播）
 
 
 def _fundamentals(sid: str, name: str, cfg: dict, token: str | None, mock: bool):
@@ -48,6 +49,8 @@ def main() -> int:
     ap.add_argument("--mock", action="store_true", help="use synthetic data")
     ap.add_argument("--no-notify", action="store_true")
     ap.add_argument("--weekly", action="store_true", help="強制加上週命中率（測試用；正常只在週一）")
+    ap.add_argument("--skip-if-sent", action="store_true",
+                    help="這份資料日已經推播過就不再推（外部排程與 GitHub 延遲排程同時觸發時避免重複）")
     ap.add_argument("--only", help="只跑指定股票（逗號分隔，例如 3008），測試用；不寫入判斷紀錄")
     args = ap.parse_args()
 
@@ -90,6 +93,15 @@ def main() -> int:
     if not results:
         print("全部失敗，結束", file=sys.stderr)
         return 1
+
+    # 同一份資料（資料日）已經推播過 → 直接結束，不再花 API 費用、不覆蓋 Dashboard
+    if args.skip_if_sent and not args.mock and not args.only and SENT_MARKER.exists() \
+            and SENT_MARKER.read_text().strip() == results[0]["date"]:
+        print(f"[info] 資料日 {results[0]['date']} 已經推播過（data/last_sent.txt），本次結束")
+        if os.getenv("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("skipped=true\n")
+        return 0
 
     # 大盤 + 相對強弱
     market, mdf = None, None
@@ -212,6 +224,9 @@ def main() -> int:
         text += f"\n⚠️ 抓取失敗：{', '.join(failed)}"
     if not args.no_notify:
         notify.send_line(text, os.getenv("LINE_TOKEN"), os.getenv("LINE_USER_ID"))
+        if not args.mock and not args.only and os.getenv("LINE_TOKEN"):
+            SENT_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            SENT_MARKER.write_text(results[0]["date"] + "\n")
     return 0
 
 

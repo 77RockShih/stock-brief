@@ -2,13 +2,19 @@ name: Daily Stock Brief
 
 on:
   schedule:
-    - cron: '41 22 * * 0-4'   # UTC 22:41 = 台北 06:41，週一到週五（避開整點／半點的排程尖峰）
+    # UTC 22:37 = 台北 06:37，週一到週五。GitHub 的排程常延遲數小時，這只是備援；
+    # 準時觸發請用外部排程呼叫 workflow_dispatch（見 README「準時觸發」），兩邊都跑也只會推一次。
+    - cron: '37 22 * * 0-4'
   workflow_dispatch:           # Actions 頁面可手動觸發
     inputs:
       only:
         description: '測試用：只跑指定股票（例如 3008）。不推 LINE、不寫紀錄、不更新 Dashboard。留空 = 正常執行'
         required: false
         default: ''
+      skip_if_sent:
+        description: '這份資料日已推播過就不推（外部排程請設 true）'
+        required: false
+        default: 'false'
 
 
 permissions:
@@ -23,7 +29,14 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      skipped: ${{ steps.run.outputs.skipped }}
     steps:
+      - name: Show trigger timing
+        run: |
+          echo "event:     ${{ github.event_name }}"
+          echo "schedule:  ${{ github.event.schedule }}"
+          echo "started:   $(date -u '+%F %T') UTC / $(TZ=Asia/Taipei date '+%F %T') 台北"
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -31,7 +44,8 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Run analysis
-        run: python main.py ${ONLY:+--only "$ONLY" --no-notify}
+        id: run
+        run: python main.py ${ONLY:+--only "$ONLY" --no-notify} $([ "$SKIP_IF_SENT" = "true" ] && echo --skip-if-sent)
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
@@ -39,24 +53,25 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
           ONLY: ${{ inputs.only }}
+          SKIP_IF_SENT: ${{ github.event_name == 'schedule' || inputs.skip_if_sent == 'true' }}
       - name: Commit advice history
-        if: ${{ !inputs.only }}
+        if: ${{ !inputs.only && steps.run.outputs.skipped != 'true' }}
         continue-on-error: true   # 紀錄失敗不影響 dashboard 部署
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/advice_history.csv
+          git add data/advice_history.csv data/last_sent.txt 2>/dev/null || git add data/advice_history.csv
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
           git commit -m "Record advice history $(TZ=Asia/Taipei date +%F)"
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
-      - if: ${{ !inputs.only }}
+      - if: ${{ !inputs.only && steps.run.outputs.skipped != 'true' }}
         uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
   deploy:
-    if: ${{ !inputs.only }}
+    if: ${{ !inputs.only && needs.build.outputs.skipped != 'true' }}
     needs: build
     runs-on: ubuntu-latest
     environment:
