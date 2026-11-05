@@ -83,6 +83,8 @@ def main() -> int:
             r.update(id=sid, name=name)
             r["revenue"], r["news"] = _fundamentals(sid, name, cfg, token, args.mock)
             r["ret20"] = float((df.close.iloc[-1] / df.close.iloc[-21] - 1) * 100)
+            # 規模：近 20 日平均成交金額（億元；volume 單位為張 → ×1000 股），給「今日重點」排序用
+            r["turnover_e8"] = float((df.close * df.volume).iloc[-20:].mean() * 1000 / 1e8)
             results.append(r)
             frames[sid] = (df, inst)
             print(f"[ok] {sid} {name}: {len(r['signals'])} signals")

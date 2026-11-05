@@ -1,6 +1,7 @@
 """Build LINE message text and the HTML dashboard."""
 import datetime as dt
 import html
+import math
 import json
 
 import pandas as pd
@@ -112,7 +113,7 @@ def night_text(n: dict, short: bool = False) -> str:
     return s
 
 
-def _events(r: dict) -> list[tuple[int, str]]:
+def _events(r: dict) -> list[tuple[float, str]]:
     """個股的重點事件與權重（給 TL;DR 挑選用）。"""
     ev = []
     for kind, text in r.get("signals", []):
@@ -120,11 +121,18 @@ def _events(r: dict) -> list[tuple[int, str]]:
         if "新高" in t or "新低" in t:
             ev.append((3, t))
         elif "爆量" in t:
-            ev.append((1, t.split("倍")[0] + "倍"))
+            ev.append((1.5, t.split("倍")[0] + "倍"))
+        elif "MA20" in t or "MACD" in t:  # 站上／跌破 MA20、均線交叉、MACD 翻正負
+            ev.append((1, t))
     fs = r.get("foreign_streak") or 0
     if abs(fs) >= 5 and not str(r.get("id", "")).startswith("00"):
         ev.append((2, f"外資連{abs(fs)}{'買' if fs > 0 else '賣'}"))
     return ev
+
+
+def _size_factor(r: dict) -> float:
+    """規模加權：1 + log10(1 + 近 20 日均成交金額[億])。0050／聯詠這類大成交量的權重約 2～3，小型股約 1。"""
+    return 1 + math.log10(1 + max(r.get("turnover_e8") or 0, 0))
 
 
 def tldr_lines(results: list[dict], market: dict | None, night: dict | None, limit: int = 3) -> list[str]:
@@ -138,7 +146,7 @@ def tldr_lines(results: list[dict], market: dict | None, night: dict | None, lim
         head.append(f"加權{'大漲' if market['d1'] > 0 else '重挫'} {abs(market['d1']):.1f}%")
     if head:
         out.append("｜".join(head))
-    ranked = sorted(((sum(w for w, _ in _events(r)), r) for r in results), key=lambda x: -x[0])
+    ranked = sorted(((sum(w for w, _ in _events(r)) * _size_factor(r), r) for r in results), key=lambda x: -x[0])
     for w, r in ranked:
         if w <= 0 or len(out) >= limit:
             break
